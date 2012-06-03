@@ -1,10 +1,10 @@
-name: smallest-federated-wiki
+name: fedwiki
 
 framework:
     type: node
 
 env:
-    URL=http://smallest-federated-wiki.stacka.to/
+    URL: http://fedwiki.stacka.to/
 
 processes:
   web: (cd server/express; NODE_ENV=production ./bin/server.js -p $PORT -u "$URL")
@@ -12,6 +12,6 @@ processes:
 mem: 256M
 
 services:
-  smf-fs: filesystem
+  fedwiki-fs: filesystem
 
 ignores: []
