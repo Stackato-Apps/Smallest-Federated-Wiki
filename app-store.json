@@ -17,7 +17,7 @@
            "name" : "Smallest Federated Wiki",
            "repo" : "git://github.com/Stackato-Apps/Smallest-Federated-Wiki.git",
            "services" : {
-              "fedwiki-fs" : "filesystem"
+              "filesystem" : "fedwiki-fs"
            }
         }
     ]
