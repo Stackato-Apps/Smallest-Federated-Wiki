@@ -1,0 +1,17 @@
+name: smallest-federated-wiki
+
+framework:
+    type: node
+
+env:
+    URL=http://smallest-federated-wiki.stacka.to/
+
+processes:
+  web: (cd server/express; NODE_ENV=production ./bin/server.js -p $PORT -u "$URL")
+
+mem: 256M
+
+services:
+  smf-fs: filesystem
+
+ignores: []
