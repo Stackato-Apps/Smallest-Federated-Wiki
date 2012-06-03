@@ -5,7 +5,7 @@
       "icons" : "http://get.stackato.com/store/icon/",
       "title" : "Smallest Federated Wiki",
     },
-    {
+    "apps" : {
        "branch" : "stackato",
        "desc" : "Smallest Federated Wiki",
        "framework" : "node",
