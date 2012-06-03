@@ -14,4 +14,8 @@ mem: 256M
 services:
   fedwiki-fs: filesystem
 
+hooks:
+  pre-running:
+    - ln -s $STACKATO_FILESYSTEM data
+
 ignores: []
