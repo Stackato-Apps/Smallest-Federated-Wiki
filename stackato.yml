@@ -3,13 +3,10 @@ name: fedwiki
 framework:
     type: node
 
-env:
-    URL: http://fedwiki.stacka.to/
-
 processes:
-  web: (cd server/express; NODE_ENV=production ./bin/server.js -p $PORT -u "$URL")
+  web: cd server/express; NODE_ENV=production ./bin/server.js -p $PORT
 
-mem: 256M
+mem: 128M
 
 services:
   fedwiki-fs: filesystem
