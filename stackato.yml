@@ -1,7 +1,7 @@
 name: fedwiki
 
 framework:
-    type: node
+  type: node
 
 processes:
   web: cd server/express; NODE_ENV=production ./bin/server.js -p $PORT
