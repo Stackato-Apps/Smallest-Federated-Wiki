@@ -5,18 +5,20 @@
       "icons" : "http://get.stackato.com/store/icon/",
       "title" : "Smallest Federated Wiki",
     },
-    "apps" : {
-       "branch" : "stackato",
-       "desc" : "Smallest Federated Wiki",
-       "framework" : "node",
-       "home" : "https://github.com/Stackato-Apps/Smallest-Federated-Wiki#readme",
-       "id" : "fedwiki",
-       "license" : "Unknown",
-       "mem" : "128",
-       "name" : "Smallest Federated Wiki",
-       "repo" : "git://github.com/Stackato-Apps/Smallest-Federated-Wiki.git",
-       "services" : {
-          "fedwiki-fs" : "filesystem"
-       }
-    }
+    "apps" : [
+        {
+           "branch" : "stackato",
+           "desc" : "Smallest Federated Wiki",
+           "framework" : "node",
+           "home" : "https://github.com/Stackato-Apps/Smallest-Federated-Wiki#readme",
+           "id" : "fedwiki",
+           "license" : "Unknown",
+           "mem" : "128",
+           "name" : "Smallest Federated Wiki",
+           "repo" : "git://github.com/Stackato-Apps/Smallest-Federated-Wiki.git",
+           "services" : {
+              "fedwiki-fs" : "filesystem"
+           }
+        }
+    ]
 }
