@@ -18,24 +18,21 @@ state.urlLocs = ->
   (j for j in $(location).attr('pathname').split('/')[1..] by 2)
 
 state.setUrl = ->
+  document.title = $('.page:last').data('data')?.title
   if history and history.pushState
     locs = state.locsInDom()
     pages = state.pagesInDom()
     url = ("/#{locs?[idx] or 'view'}/#{page}" for page, idx in pages).join('')
     unless url is $(location).attr('pathname')
-      wiki.log 'set state', locs, pages
       history.pushState(null, null, url)
 
 state.show = (e) ->
-  wiki.log 'popstate', e
   oldPages = state.pagesInDom()
   newPages = state.urlPages()
   oldLocs = state.locsInDom()
   newLocs = state.urlLocs()
 
   return if (!location.pathname or location.pathname is '/')
-
-  wiki.log 'showState', oldPages, newPages, oldLocs, newLocs
 
   previous = $('.page').eq(0)
 
@@ -49,14 +46,13 @@ state.show = (e) ->
   previous.nextAll().remove()
 
   active.set($('.page').last())
+  document.title = $('.page:last').data('data')?.title
 
 state.first = ->
   state.setUrl()
   firstUrlPages = state.urlPages()
   firstUrlLocs = state.urlLocs()
   oldPages = state.pagesInDom()
-  wiki.log 'amost createPage', firstUrlPages, firstUrlLocs, oldPages
   for urlPage, idx in firstUrlPages when urlPage not in oldPages
-    wiki.log 'createPage', urlPage, idx
     wiki.createPage(urlPage, firstUrlLocs[idx]).appendTo('.main') unless urlPage is ''
 

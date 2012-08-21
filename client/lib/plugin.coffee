@@ -29,18 +29,19 @@ plugin.do = wiki.doPlugin = (div, item) ->
     errorElement.text(ex.toString())
     div.append(errorElement)
 
-  try
-    div.data 'pageElement', div.parents(".page")
-    div.data 'item', item
-    plugin.get item.type, (script) ->
-      try
-        throw TypeError("Can't find plugin for '#{item.type}'") unless script?
-        script.emit div, item
-        script.bind div, item
-      catch err
-        error(err)
-  catch err
-    error(err)
+  div.data 'pageElement', div.parents(".page")
+  div.data 'item', item
+  plugin.get item.type, (script) ->
+    try
+      throw TypeError("Can't find plugin for '#{item.type}'") unless script?
+      script.emit div, item
+      script.bind div, item
+    catch err
+      error(err)
+
+wiki.registerPlugin = (pluginName,pluginFn)->
+  window.plugins[pluginName] = pluginFn($)
+
 
 # PLUGINS for each story item type
 
@@ -48,7 +49,7 @@ window.plugins =
   paragraph:
     emit: (div, item) -> div.append "<p>#{wiki.resolveLinks(item.text)}</p>"
     bind: (div, item) ->
-      div.dblclick -> wiki.textEditor div, item
+      div.dblclick -> wiki.textEditor div, item, null, true
   image:
     emit: (div, item) ->
       item.text ||= item.caption
@@ -57,15 +58,3 @@ window.plugins =
     bind: (div, item) ->
       div.dblclick -> wiki.textEditor div, item
       div.find('img').dblclick -> wiki.dialog item.text, this
-  changes:
-    emit: (div, item) ->
-      div.append ul = $('<ul />').append if localStorage.length then $('<input type="button" value="discard all" />').css('margin-top','10px') else $('<p>empty</p>')
-      for i in [0...localStorage.length]
-        key = localStorage.key(i)
-        a = $('<a class="internal" href="#" />').append(key).data('pageName', key)
-        ul.prepend($('<li />').append(a))
-    bind: (div, item) ->
-      div.find('input').click ->
-        localStorage.clear()
-        div.find('li').remove()
-

@@ -16,18 +16,35 @@ window.plugins.scatter =
          </style>
         '''
 
+        value = (obj) ->
+          return NaN unless obj?
+          switch obj.constructor
+            when Number then obj
+            when String then +obj
+            when Array then value(obj[0])
+            when Object then value(obj.value)
+            when Function then obj()
+            else NaN
+
+        round = (n) ->
+          return '?' unless n?
+          if n.toString().match /\.\d\d\d/
+            n.toFixed 2
+          else
+            n
+
         who = $('.chart,.data,.calculator').last()
         data = who.data('item').data
-        horz = "Water/Land Intensity Total"
+        horz = "Water / Land Intensity Total"
         vert = "Total Score"
-        xdat = (d) -> +d[horz]
-        ydat = (d) -> +d[vert]
+        xdat = (d) -> value d[horz]
+        ydat = (d) -> value d[vert]
         title = (d) ->
           """
           #{d.Material}
-          #{horz}: #{d[horz]}
-          #{vert}: #{d[vert]}
-          Rank: #{d['Rank']}
+          #{horz}: #{round xdat d}
+          #{vert}: #{round ydat d}
+          Rank: #{value d['Rank']}
           """
 
         who.bind 'thumb', (e, thumb) ->

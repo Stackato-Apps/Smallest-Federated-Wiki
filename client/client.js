@@ -346,7 +346,7 @@ exports.extname = function(path) {
 
 require.define("/lib/legacy.coffee", function (require, module, exports, __dirname, __filename) {
 (function() {
-  var active, pageHandler, plugin, refresh, state, util;
+  var active, pageHandler, plugin, refresh, resolveLinks, state, util;
   var __slice = Array.prototype.slice;
 
   window.wiki = {};
@@ -363,12 +363,14 @@ require.define("/lib/legacy.coffee", function (require, module, exports, __dirna
 
   refresh = require('./refresh.coffee');
 
+  resolveLinks = wiki.resolveLinks = util.resolveLinks;
+
   Array.prototype.last = function() {
     return this[this.length - 1];
   };
 
   $(function() {
-    var LEFTARROW, RIGHTARROW, addToJournal, createPage, createTextElement, doInternalLink, finishClick, getItem, resolveFrom, resolveLinks, textEditor, useLocalStorage;
+    var LEFTARROW, RIGHTARROW, addToJournal, createPage, createTextElement, doInternalLink, finishClick, getItem, resolveFrom, textEditor, useLocalStorage;
     window.dialog = $('<div></div>').html('This dialog will show every time!').dialog({
       autoOpen: false,
       title: 'Basic Dialog',
@@ -387,20 +389,6 @@ require.define("/lib/legacy.coffee", function (require, module, exports, __dirna
         return console.log(things);
       }
     };
-    wiki.dump = function() {
-      var i, p, _i, _j, _len, _len2, _ref, _ref2;
-      _ref = $('.page');
-      for (_i = 0, _len = _ref.length; _i < _len; _i++) {
-        p = _ref[_i];
-        wiki.log('.page', p);
-        _ref2 = $(p).find('.item');
-        for (_j = 0, _len2 = _ref2.length; _j < _len2; _j++) {
-          i = _ref2[_j];
-          wiki.log('.item', i, 'data-item', $(i).data('item'));
-        }
-      }
-      return null;
-    };
     wiki.resolutionContext = [];
     resolveFrom = wiki.resolveFrom = function(addition, callback) {
       wiki.resolutionContext.push(addition);
@@ -410,24 +398,6 @@ require.define("/lib/legacy.coffee", function (require, module, exports, __dirna
         wiki.resolutionContext.pop();
       }
     };
-    resolveLinks = wiki.resolveLinks = function(string) {
-      var renderInternalLink;
-      renderInternalLink = function(match, name) {
-        var slug;
-        slug = util.asSlug(name);
-        wiki.log('resolve', slug, 'context', wiki.resolutionContext.join(' => '));
-        return "<a class=\"internal\" href=\"/" + slug + ".html\" data-page-name=\"" + slug + "\" title=\"" + (wiki.resolutionContext.join(' => ')) + "\">" + name + "</a>";
-      };
-      return string.replace(/\[\[([^\]]+)\]\]/gi, renderInternalLink).replace(/\[(http.*?) (.*?)\]/gi, "<a class=\"external\" target=\"_blank\" href=\"$1\">$2</a>");
-    };
-    wiki.symbols = {
-      create: '☼',
-      add: '+',
-      edit: '✎',
-      fork: '⚑',
-      move: '↕',
-      remove: '✕'
-    };
     addToJournal = wiki.addToJournal = function(journalElement, action) {
       var actionElement, actionTitle, controls, pageElement, prev;
       pageElement = journalElement.parents('.page:first');
@@ -435,11 +405,10 @@ require.define("/lib/legacy.coffee", function (require, module, exports, __dirna
         prev = journalElement.find(".edit[data-id=" + (action.id || 0) + "]");
       }
       actionTitle = action.type;
-      if (action.type === 'edit') actionTitle += "(" + prev.length + ")";
       if (action.date != null) {
-        actionTitle += ": " + (util.formatDate(action.date));
+        actionTitle += " " + (util.formatElapsedTime(action.date));
       }
-      actionElement = $("<a href=\"\#\" /> ").addClass("action").addClass(action.type).text(wiki.symbols[action.type]).attr('title', actionTitle).attr('data-id', action.id || "0").data('action', action);
+      actionElement = $("<a href=\"\#\" /> ").addClass("action").addClass(action.type).text(util.symbols[action.type]).attr('title', actionTitle).attr('data-id', action.id || "0").data('action', action);
       controls = journalElement.children('.control-buttons');
       if (controls.length > 0) {
         actionElement.insertBefore(controls);
@@ -451,7 +420,6 @@ require.define("/lib/legacy.coffee", function (require, module, exports, __dirna
       }
     };
     useLocalStorage = wiki.useLocalStorage = function() {
-      wiki.log('useLocalStorage', $(".login").length > 0);
       return $(".login").length > 0;
     };
     createTextElement = function(pageElement, beforeElement, initialText) {
@@ -479,9 +447,12 @@ require.define("/lib/legacy.coffee", function (require, module, exports, __dirna
         });
       });
     };
-    textEditor = wiki.textEditor = function(div, item, caretPos) {
+    textEditor = wiki.textEditor = function(div, item, caretPos, doubleClicked) {
       var original, textarea, _ref;
+      if (div.hasClass('textEditing')) return;
+      div.addClass('textEditing');
       textarea = $("<textarea>" + (original = (_ref = item.text) != null ? _ref : '') + "</textarea>").focusout(function() {
+        div.removeClass('textEditing');
         if (item.text = textarea.val()) {
           plugin["do"](div.empty(), item);
           if (item.text === original) return;
@@ -499,37 +470,42 @@ require.define("/lib/legacy.coffee", function (require, module, exports, __dirna
         }
         return null;
       }).bind('keydown', function(e) {
-        var caret, pageElement, prefix, prevItem, prevTextLen, suffix, text;
+        var middle, pageElement, prefix, prevItem, prevTextLen, sel, suffix, text;
         if ((e.altKey || e.ctlKey || e.metaKey) && e.which === 83) {
           textarea.focusout();
           return false;
         }
-        if (e.which === $.ui.keyCode.BACKSPACE && util.getCaretPosition(textarea.get(0)) === 0) {
-          prevItem = getItem(div.prev());
-          if (prevItem.text == null) return;
-          prevTextLen = prevItem.text.length;
-          prevItem.text += textarea.val();
-          textarea.val('');
-          textEditor(div.prev(), prevItem, prevTextLen);
-          return false;
-        } else if (e.which === $.ui.keyCode.ENTER) {
-          caret = util.getCaretPosition(textarea.get(0));
-          if (!caret) return false;
-          text = textarea.val();
-          prefix = text.substring(0, caret);
-          suffix = text.substring(caret);
-          textarea.val(prefix);
-          textarea.focusout();
-          pageElement = div.parent().parent();
-          createTextElement(pageElement, div, suffix);
-          return false;
+        if (item.type === 'paragraph') {
+          sel = util.getSelectionPos(textarea);
+          if (e.which === $.ui.keyCode.BACKSPACE && sel.start === 0 && sel.start === sel.end) {
+            prevItem = getItem(div.prev());
+            if (prevItem.type !== 'paragraph') return false;
+            prevTextLen = prevItem.text.length;
+            prevItem.text += textarea.val();
+            textarea.val('');
+            textEditor(div.prev(), prevItem, prevTextLen);
+            return false;
+          } else if (e.which === $.ui.keyCode.ENTER && item.type === 'paragraph') {
+            if (!sel) return false;
+            text = textarea.val();
+            prefix = text.substring(0, sel.start);
+            if (sel.start !== sel.end) middle = text.substring(sel.start, sel.end);
+            suffix = text.substring(sel.end);
+            textarea.val(prefix);
+            textarea.focusout();
+            pageElement = div.parent().parent();
+            createTextElement(pageElement, div, suffix);
+            if (middle != null) createTextElement(pageElement, div, middle);
+            return false;
+          }
         }
-      }).bind('dblclick', function(e) {
-        return false;
       });
       div.html(textarea);
       if (caretPos != null) {
-        return util.setCaretPosition(textarea.get(0), caretPos);
+        return util.setCaretPosition(textarea, caretPos);
+      } else if (doubleClicked) {
+        util.setCaretPosition(textarea, textarea.val().length);
+        return textarea.scrollTop(textarea[0].scrollHeight - textarea.height());
       } else {
         return textarea.focus();
       }
@@ -569,10 +545,11 @@ require.define("/lib/legacy.coffee", function (require, module, exports, __dirna
         return $(who);
       }
     };
-    doInternalLink = wiki.doInternalLink = function(name, page) {
+    doInternalLink = wiki.doInternalLink = function(name, page, site) {
+      if (site == null) site = null;
       name = util.asSlug(name);
       if (page != null) $(page).nextAll().remove();
-      createPage(name).appendTo($('.main')).each(refresh);
+      createPage(name, site).appendTo($('.main')).each(refresh);
       return active.set($('.page').last());
     };
     LEFTARROW = 37;
@@ -596,7 +573,7 @@ require.define("/lib/legacy.coffee", function (require, module, exports, __dirna
       }
     });
     createPage = wiki.createPage = function(name, loc) {
-      if (loc && (loc !== ('view' || 'my'))) {
+      if (loc && loc !== 'view') {
         return $("<div/>").attr('id', name).attr('data-site', loc).addClass("page");
       } else {
         return $("<div/>").attr('id', name).addClass("page");
@@ -613,7 +590,7 @@ require.define("/lib/legacy.coffee", function (require, module, exports, __dirna
       var page;
       e.preventDefault();
       if (!e.shiftKey) page = $(e.target).parents('.page');
-      return doInternalLink(name, page);
+      return doInternalLink(name, page, $(e.target).data('site'));
     };
     $('.main').delegate('.show-page-source', 'click', function(e) {
       var json, pageElement;
@@ -633,26 +610,28 @@ require.define("/lib/legacy.coffee", function (require, module, exports, __dirna
       name = $(e.target).data('slug');
       pageHandler.context = [$(e.target).data('site')];
       return finishClick(e, name);
-    }).delegate('.action', 'click', function(e) {
-      var data, element, journalEntryIndex, name, page, revUrl, titleUrl;
+    }).delegate('.revision', 'dblclick', function(e) {
+      var $page, action, json, rev;
       e.preventDefault();
-      element = $(e.target);
-      if (e.shiftKey) {
-        return wiki.dialog("" + (element.data('action').type) + " action", $('<pre/>').text(JSON.stringify(element.data('action'), null, 2)));
-      }
-      if (element.is('.fork')) {
+      $page = $(this).parents('.page');
+      rev = $page.data('rev');
+      action = $page.data('data').journal[rev];
+      json = JSON.stringify(action, null, 2);
+      return wiki.dialog("Revision " + rev + ", " + action.type + " action", $('<pre/>').text(json));
+    }).delegate('.action', 'click', function(e) {
+      var $action, $page, name, rev, slug;
+      e.preventDefault();
+      $action = $(e.target);
+      if ($action.is('.fork')) {
         name = $(e.target).data('slug');
-        pageHandler.context = [$(e.target).data('site')];
+        pageHandler.context = [$action.data('site')];
         return finishClick(e, name);
       } else {
-        journalEntryIndex = $(this).parent().children().index(element);
-        data = $(this).parent().parent().data('data');
-        titleUrl = util.asSlug(data.title);
-        revUrl = "" + titleUrl + "_rev" + journalEntryIndex;
-        e.preventDefault();
-        if (!e.shiftKey) page = $(e.target).parents('.page');
-        if (page != null) $(page).nextAll().remove();
-        createPage(revUrl).appendTo($('.main')).each(refresh);
+        $page = $(this).parents('.page');
+        slug = util.asSlug($page.data('data').title);
+        rev = $(this).parent().children().index($action);
+        if (!e.shiftKey) $page.nextAll().remove();
+        createPage("" + slug + "_rev" + rev, $page.data('site')).appendTo($('.main')).each(refresh);
         return active.set($('.page').last());
       }
     }).delegate('.fork-page', 'click', function(e) {
@@ -690,6 +669,25 @@ require.define("/lib/util.coffee", function (require, module, exports, __dirname
   var util;
 
   module.exports = util = {};
+
+  util.symbols = {
+    create: '☼',
+    add: '+',
+    edit: '✎',
+    fork: '⚑',
+    move: '↕',
+    remove: '✕'
+  };
+
+  util.resolveLinks = function(string) {
+    var renderInternalLink;
+    renderInternalLink = function(match, name) {
+      var slug;
+      slug = util.asSlug(name);
+      return "<a class=\"internal\" href=\"/" + slug + ".html\" data-page-name=\"" + slug + "\" title=\"" + (wiki.resolutionContext.join(' => ')) + "\">" + name + "</a>";
+    };
+    return string.replace(/\[\[([^\]]+)\]\]/gi, renderInternalLink).replace(/\[(http.*?) (.*?)\]/gi, "<a class=\"external\" target=\"_blank\" href=\"$1\">$2</a>");
+  };
 
   util.randomByte = function() {
     return (((1 + Math.random()) * 0x100) | 0).toString(16).substring(1);
@@ -729,7 +727,22 @@ require.define("/lib/util.coffee", function (require, module, exports, __dirname
     h = h === 0 ? 12 : h > 12 ? h - 12 : h;
     mi = (d.getMinutes() < 10 ? "0" : "") + d.getMinutes();
     sec = (d.getSeconds() < 10 ? "0" : "") + d.getSeconds();
-    return "" + wk + " " + mo + " " + day + " " + yr + " " + h + ":" + mi + ":" + sec + " " + am;
+    return "" + wk + " " + mo + " " + day + ", " + yr + "<br>" + h + ":" + mi + ":" + sec + " " + am;
+  };
+
+  util.formatElapsedTime = function(msSinceEpoch) {
+    var days, hrs, mins, months, msecs, secs, weeks, years;
+    msecs = new Date().getTime() - msSinceEpoch;
+    if ((secs = msecs / 1000) < 2) {
+      return "" + (Math.floor(msecs)) + " milliseconds ago";
+    }
+    if ((mins = secs / 60) < 2) return "" + (Math.floor(secs)) + " seconds ago";
+    if ((hrs = mins / 60) < 2) return "" + (Math.floor(mins)) + " minutes ago";
+    if ((days = hrs / 24) < 2) return "" + (Math.floor(hrs)) + " hours ago";
+    if ((weeks = days / 7) < 2) return "" + (Math.floor(days)) + " days ago";
+    if ((months = days / 31) < 2) return "" + (Math.floor(weeks)) + " weeks ago";
+    if ((years = days / 365) < 2) return "" + (Math.floor(months)) + " months ago";
+    return "" + (Math.floor(years)) + " years ago";
   };
 
   util.asSlug = function(name) {
@@ -744,32 +757,38 @@ require.define("/lib/util.coffee", function (require, module, exports, __dirname
     };
   };
 
-  util.getCaretPosition = function(div) {
-    var caretPos, sel;
-    if (!(div != null)) return null;
-    caretPos = 0;
+  util.getSelectionPos = function(jQueryElement) {
+    var el, iePos, sel;
+    el = jQueryElement.get(0);
     if (document.selection) {
-      div.focus();
+      el.focus();
       sel = document.selection.createRange();
-      sel.moveStart("character", -div.value.length);
-      caretPos = sel.text.length;
+      sel.moveStart('character', -el.value.length);
+      iePos = sel.text.length;
+      return {
+        start: iePos,
+        end: iePos
+      };
     } else {
-      if (div.selectionStart != null) caretPos = div.selectionStart;
+      return {
+        start: el.selectionStart,
+        end: el.selectionEnd
+      };
     }
-    return caretPos;
   };
 
-  util.setCaretPosition = function(elem, caretPos) {
-    var range;
-    if (elem != null) {
-      if (elem.createTextRange) {
-        range = elem.createTextRange();
+  util.setCaretPosition = function(jQueryElement, caretPos) {
+    var el, range;
+    el = jQueryElement.get(0);
+    if (el != null) {
+      if (el.createTextRange) {
+        range = el.createTextRange();
         range.move("character", caretPos);
         range.select();
       } else {
-        elem.setSelectionRange(caretPos, caretPos);
+        el.setSelectionRange(caretPos, caretPos);
       }
-      return elem.focus();
+      return el.focus();
     }
   };
 
@@ -779,7 +798,7 @@ require.define("/lib/util.coffee", function (require, module, exports, __dirname
 
 require.define("/lib/pageHandler.coffee", function (require, module, exports, __dirname, __filename) {
 (function() {
-  var pageHandler, pushToLocal, pushToServer, revision, state, util;
+  var pageFromLocalStorage, pageHandler, pushToLocal, pushToServer, recursiveGet, revision, state, util;
 
   util = require('./util');
 
@@ -789,75 +808,108 @@ require.define("/lib/pageHandler.coffee", function (require, module, exports, __
 
   module.exports = pageHandler = {};
 
-  pageHandler.get = function(pageElement, callback, localContext) {
-    var i, json, resource, rev, site, slug, _ref;
-    _ref = pageElement.attr('id').split('_rev'), slug = _ref[0], rev = _ref[1];
-    site = pageElement.data('site');
-    if (pageElement.attr('data-server-generated') === 'true') {
-      return callback(null);
+  pageFromLocalStorage = function(slug) {
+    var json;
+    if (json = localStorage[slug]) {
+      return JSON.parse(json);
+    } else {
+      return;
     }
-    if (wiki.useLocalStorage() && (json = localStorage[slug])) {
-      pageElement.addClass("local");
-      return callback(JSON.parse(json));
-    }
-    if (!(pageHandler.context.length > 0)) pageHandler.context = ['origin'];
+  };
+
+  recursiveGet = function(_arg) {
+    var localContext, localPage, pageInformation, pageUrl, resource, rev, site, slug, whenGotten, whenNotGotten;
+    pageInformation = _arg.pageInformation, whenGotten = _arg.whenGotten, whenNotGotten = _arg.whenNotGotten, localContext = _arg.localContext;
+    slug = pageInformation.slug, rev = pageInformation.rev, site = pageInformation.site;
     if (site) {
       localContext = [];
     } else {
-      if (localContext == null) {
-        localContext = (function() {
-          var _i, _len, _ref2, _results;
-          _ref2 = pageHandler.context;
-          _results = [];
-          for (_i = 0, _len = _ref2.length; _i < _len; _i++) {
-            i = _ref2[_i];
-            _results.push(i);
-          }
-          return _results;
-        })();
-      }
       site = localContext.shift();
     }
-    resource = site === 'origin' ? (site = null, slug) : "remote/" + site + "/" + slug;
+    if (site === 'view') site = null;
+    if (site != null) {
+      if (site === 'local') {
+        if (localPage = pageFromLocalStorage(pageInformation.slug)) {
+          return whenGotten(localPage, 'local');
+        } else {
+
+        }
+      } else {
+        if (site === 'origin') {
+          resource = slug;
+        } else {
+          resource = "remote/" + site + "/" + slug;
+        }
+      }
+    } else {
+      resource = slug;
+    }
+    pageUrl = "/" + resource + ".json?random=" + (util.randomBytes(4));
     return $.ajax({
       type: 'GET',
       dataType: 'json',
-      url: "/" + resource + ".json?random=" + (util.randomBytes(4)),
+      url: pageUrl,
       success: function(page) {
-        wiki.log('fetch success', page, site || 'origin');
-        $(pageElement).data('site', site);
         if (rev) page = revision.create(rev, page);
-        return callback(page);
+        return whenGotten(page, site);
       },
       error: function(xhr, type, msg) {
-        var title;
+        var report;
+        if (xhr.status !== 404) {
+          wiki.log('pageHandler.get error', xhr, xhr.status, type, msg);
+          report = {
+            'title': msg,
+            'story': [
+              {
+                'type': 'paragraph',
+                'id': '928739187243',
+                'text': "<pre>" + xhr.responseText
+              }
+            ]
+          };
+          return whenGotten(report, 'local');
+        }
         if (localContext.length > 0) {
-          return pageHandler.get(pageElement, callback, localContext);
+          return recursiveGet({
+            pageInformation: pageInformation,
+            whenGotten: whenGotten,
+            whenNotGotten: whenNotGotten,
+            localContext: localContext
+          });
         } else {
-          site = null;
-          title = $("a[href=\"/" + slug + ".html\"]").html();
-          title || (title = slug);
-          pageHandler.put($(pageElement), {
-            type: 'create',
-            id: util.randomBytes(8),
-            item: {
-              title: title
-            }
-          });
-          return callback({
-            title: title
-          });
+          return whenNotGotten();
         }
       }
     });
   };
 
+  pageHandler.get = function(_arg) {
+    var localPage, pageInformation, whenGotten, whenNotGotten;
+    whenGotten = _arg.whenGotten, whenNotGotten = _arg.whenNotGotten, pageInformation = _arg.pageInformation;
+    wiki.log('pageHandler.get', pageInformation.site, pageInformation.slug, pageInformation.rev, 'context', pageHandler.context.join(' => '));
+    if (pageInformation.wasServerGenerated) return whenGotten(null);
+    if (!pageInformation.site) {
+      if (localPage = pageFromLocalStorage(pageInformation.slug)) {
+        if (pageInformation.rev) {
+          localPage = revision.create(pageInformation.rev, localPage);
+        }
+        return whenGotten(localPage, 'local');
+      }
+    }
+    if (!pageHandler.context.length) pageHandler.context = ['view'];
+    return recursiveGet({
+      pageInformation: pageInformation,
+      whenGotten: whenGotten,
+      whenNotGotten: whenNotGotten,
+      localContext: _.clone(pageHandler.context)
+    });
+  };
+
   pageHandler.context = [];
 
-  pushToLocal = function(pageElement, action) {
-    var page;
-    page = localStorage[pageElement.attr("id")];
-    if (page) page = JSON.parse(page);
+  pushToLocal = function(pageElement, pagePutInfo, action) {
+    var page, site;
+    page = pageFromLocalStorage(pagePutInfo.slug);
     if (action.type === 'create') {
       page = {
         title: action.item.title
@@ -865,18 +917,25 @@ require.define("/lib/pageHandler.coffee", function (require, module, exports, __
     }
     page || (page = pageElement.data("data"));
     if (page.journal == null) page.journal = [];
+    if ((site = action['fork']) != null) {
+      page.journal = page.journal.concat({
+        'type': 'fork',
+        'site': site
+      });
+      delete action['fork'];
+    }
     page.journal = page.journal.concat(action);
     page.story = $(pageElement).find(".item").map(function() {
       return $(this).data("item");
     }).get();
-    localStorage[pageElement.attr("id")] = JSON.stringify(page);
+    localStorage[pagePutInfo.slug] = JSON.stringify(page);
     return wiki.addToJournal(pageElement.find('.journal'), action);
   };
 
-  pushToServer = function(pageElement, action) {
+  pushToServer = function(pageElement, pagePutInfo, action) {
     return $.ajax({
       type: 'PUT',
-      url: "/page/" + (pageElement.attr('id')) + "/action",
+      url: "/page/" + pagePutInfo.slug + "/action",
       data: {
         'action': JSON.stringify(action)
       },
@@ -890,25 +949,57 @@ require.define("/lib/pageHandler.coffee", function (require, module, exports, __
   };
 
   pageHandler.put = function(pageElement, action) {
-    var site;
+    var checkedSite, forkFrom, pagePutInfo;
+    checkedSite = function() {
+      var site;
+      switch (site = pageElement.data('site')) {
+        case 'origin':
+        case 'local':
+        case 'view':
+          return null;
+        case location.host:
+          return null;
+        default:
+          return site;
+      }
+    };
+    pagePutInfo = {
+      slug: pageElement.attr('id').split('_rev')[0],
+      rev: pageElement.attr('id').split('_rev')[1],
+      site: checkedSite(),
+      local: pageElement.hasClass('local')
+    };
+    forkFrom = pagePutInfo.site;
+    wiki.log('pageHandler.put', pageElement, action, 'pagePutInfo', pagePutInfo, 'forkFrom', forkFrom);
+    if (wiki.useLocalStorage()) {
+      if (pagePutInfo.site != null) {
+        wiki.log('remote => local');
+      } else if (!pagePutInfo.local) {
+        wiki.log('origin => local');
+        action.site = forkFrom = location.host;
+      }
+    }
     action.date = (new Date()).getTime();
-    if (action.type !== 'fork' && ((site = pageElement.data('site')) != null)) {
-      action.fork = site;
+    if (action.site === 'origin') delete action.site;
+    if (forkFrom) {
       pageElement.find('h1 img').attr('src', '/favicon.png');
       pageElement.find('h1 a').attr('href', '/');
       pageElement.data('site', null);
       state.setUrl();
-      wiki.addToJournal(pageElement.find('.journal'), {
-        type: 'fork',
-        site: site,
-        date: action.date
-      });
+      if (action.type !== 'fork') {
+        action.fork = forkFrom;
+        wiki.addToJournal(pageElement.find('.journal'), {
+          type: 'fork',
+          site: forkFrom,
+          date: action.date
+        });
+      }
     }
-    if (wiki.useLocalStorage()) {
-      pushToLocal(pageElement, action);
+    if (wiki.useLocalStorage() || pagePutInfo.site === 'local') {
+      pushToLocal(pageElement, pagePutInfo, action);
       return pageElement.addClass("local");
     } else {
-      return pushToServer(pageElement, action);
+      return pushToServer(pageElement, pagePutInfo, action);
     }
   };
 
@@ -963,7 +1054,8 @@ require.define("/lib/state.coffee", function (require, module, exports, __dirnam
   };
 
   state.setUrl = function() {
-    var idx, locs, page, pages, url;
+    var idx, locs, page, pages, url, _ref;
+    document.title = (_ref = $('.page:last').data('data')) != null ? _ref.title : void 0;
     if (history && history.pushState) {
       locs = state.locsInDom();
       pages = state.pagesInDom();
@@ -977,21 +1069,18 @@ require.define("/lib/state.coffee", function (require, module, exports, __dirnam
         return _results;
       })()).join('');
       if (url !== $(location).attr('pathname')) {
-        wiki.log('set state', locs, pages);
         return history.pushState(null, null, url);
       }
     }
   };
 
   state.show = function(e) {
-    var idx, name, newLocs, newPages, old, oldLocs, oldPages, previous, _len;
-    wiki.log('popstate', e);
+    var idx, name, newLocs, newPages, old, oldLocs, oldPages, previous, _len, _ref;
     oldPages = state.pagesInDom();
     newPages = state.urlPages();
     oldLocs = state.locsInDom();
     newLocs = state.urlLocs();
     if (!location.pathname || location.pathname === '/') return;
-    wiki.log('showState', oldPages, newPages, oldLocs, newLocs);
     previous = $('.page').eq(0);
     for (idx = 0, _len = newPages.length; idx < _len; idx++) {
       name = newPages[idx];
@@ -1003,7 +1092,8 @@ require.define("/lib/state.coffee", function (require, module, exports, __dirnam
       previous = $('.page').eq(idx);
     }
     previous.nextAll().remove();
-    return active.set($('.page').last());
+    active.set($('.page').last());
+    return document.title = (_ref = $('.page:last').data('data')) != null ? _ref.title : void 0;
   };
 
   state.first = function() {
@@ -1012,16 +1102,15 @@ require.define("/lib/state.coffee", function (require, module, exports, __dirnam
     firstUrlPages = state.urlPages();
     firstUrlLocs = state.urlLocs();
     oldPages = state.pagesInDom();
-    wiki.log('amost createPage', firstUrlPages, firstUrlLocs, oldPages);
     _results = [];
     for (idx = 0, _len = firstUrlPages.length; idx < _len; idx++) {
       urlPage = firstUrlPages[idx];
-      if (!(__indexOf.call(oldPages, urlPage) < 0)) continue;
-      wiki.log('createPage', urlPage, idx);
-      if (urlPage !== '') {
-        _results.push(wiki.createPage(urlPage, firstUrlLocs[idx]).appendTo('.main'));
-      } else {
-        _results.push(void 0);
+      if (__indexOf.call(oldPages, urlPage) < 0) {
+        if (urlPage !== '') {
+          _results.push(wiki.createPage(urlPage, firstUrlLocs[idx]).appendTo('.main'));
+        } else {
+          _results.push(void 0);
+        }
       }
     }
     return _results;
@@ -1047,7 +1136,7 @@ require.define("/lib/active.coffee", function (require, module, exports, __dirna
     if (scrolled.length > 0) {
       return scrolled;
     } else {
-      return $("body, html").scrollLeft(4).filter(function() {
+      return $("body, html").scrollLeft(12).filter(function() {
         return $(this).scrollLeft() > 0;
       }).scrollTop(0);
     }
@@ -1061,7 +1150,6 @@ require.define("/lib/active.coffee", function (require, module, exports, __dirna
     bodyWidth = $("body").width();
     minX = active.scrollContainer.scrollLeft();
     maxX = minX + bodyWidth;
-    wiki.log('scrollTo', el, el.position());
     target = el.position().left;
     width = el.outerWidth(true);
     contentWidth = $(".page").outerWidth(true) * $(".page").size();
@@ -1082,7 +1170,6 @@ require.define("/lib/active.coffee", function (require, module, exports, __dirna
 
   active.set = function(el) {
     el = $(el);
-    wiki.log('set active', el);
     $(".active").removeClass("active");
     return scrollTo(el.addClass("active"));
   };
@@ -1096,68 +1183,53 @@ require.define("/lib/revision.coffee", function (require, module, exports, __dir
   var create;
 
   create = function(revIndex, data) {
-    var i, itemEdited, itemId, itemSplicedIn, items, journal, journalEntry, removeId, revJournal, revStory, revTitle, storyItem, _i, _j, _k, _len, _len2, _len3, _len4, _len5, _len6, _ref, _ref2;
+    var afterIndex, editIndex, itemId, items, journal, journalEntry, removeIndex, revJournal, revStory, revStoryIds, revTitle, storyItem, _i, _j, _k, _len, _len2, _len3, _ref;
     journal = data.journal;
     revTitle = data.title;
     revStory = [];
-    revJournal = [];
-    _ref = journal.slice(0, (+revIndex) + 1);
-    for (_i = 0, _len = _ref.length; _i < _len; _i++) {
-      journalEntry = _ref[_i];
-      itemSplicedIn = false;
-      itemEdited = false;
-      revJournal.push(journalEntry);
+    revJournal = journal.slice(0, (+revIndex) + 1 || 9e9);
+    for (_i = 0, _len = revJournal.length; _i < _len; _i++) {
+      journalEntry = revJournal[_i];
+      revStoryIds = revStory.map(function(storyItem) {
+        return storyItem.id;
+      });
       switch (journalEntry.type) {
         case 'create':
-          if (journalEntry.item.title != null) revTitle = journalEntry.item.title;
+          if (journalEntry.item.title != null) {
+            revTitle = journalEntry.item.title;
+            revStory = journalEntry.item.story || [];
+          }
           break;
         case 'add':
-          if (journalEntry.after != null) {
-            for (i = 0, _len2 = revStory.length; i < _len2; i++) {
-              storyItem = revStory[i];
-              if (storyItem.id === journalEntry.after) {
-                itemSplicedIn = true;
-                revStory.splice(i + 1, 0, journalEntry.item);
-                break;
-              }
-            }
-            if (!itemSplicedIn) revStory.push(journalEntry.item);
+          if ((afterIndex = revStoryIds.indexOf(journalEntry.after)) !== -1) {
+            revStory.splice(afterIndex + 1, 0, journalEntry.item);
           } else {
             revStory.push(journalEntry.item);
           }
           break;
         case 'edit':
-          for (i = 0, _len3 = revStory.length; i < _len3; i++) {
-            storyItem = revStory[i];
-            if (storyItem.id === journalEntry.id) {
-              revStory[i] = journalEntry.item;
-              itemEdited = true;
-              break;
-            }
+          if ((editIndex = revStoryIds.indexOf(journalEntry.id)) !== -1) {
+            revStory.splice(editIndex, 1, journalEntry.item);
+          } else {
+            revStory.push(journalEntry.item);
           }
-          if (!itemEdited) revStory.push(journalEntry.item);
           break;
         case 'move':
           items = [];
-          for (_j = 0, _len4 = revStory.length; _j < _len4; _j++) {
+          for (_j = 0, _len2 = revStory.length; _j < _len2; _j++) {
             storyItem = revStory[_j];
             items[storyItem.id] = storyItem;
           }
           revStory = [];
-          _ref2 = journalEntry.order;
-          for (_k = 0, _len5 = _ref2.length; _k < _len5; _k++) {
-            itemId = _ref2[_k];
+          _ref = journalEntry.order;
+          for (_k = 0, _len3 = _ref.length; _k < _len3; _k++) {
+            itemId = _ref[_k];
             revStory.push(items[itemId]);
           }
           break;
         case 'remove':
-          removeId = journalEntry.id;
-          for (i = 0, _len6 = revStory.length; i < _len6; i++) {
-            storyItem = revStory[i];
-            if (storyItem.id === removeId) {
-              revStory.splice(i, 1);
-              break;
-            }
+          if ((removeIndex = revStoryIds.indexOf(journalEntry.id)) !== -1) {
+            revStory.splice(removeIndex, 1);
           }
       }
     }
@@ -1216,23 +1288,23 @@ require.define("/lib/plugin.coffee", function (require, module, exports, __dirna
       errorElement.text(ex.toString());
       return div.append(errorElement);
     };
-    try {
-      div.data('pageElement', div.parents(".page"));
-      div.data('item', item);
-      return plugin.get(item.type, function(script) {
-        try {
-          if (script == null) {
-            throw TypeError("Can't find plugin for '" + item.type + "'");
-          }
-          script.emit(div, item);
-          return script.bind(div, item);
-        } catch (err) {
-          return error(err);
+    div.data('pageElement', div.parents(".page"));
+    div.data('item', item);
+    return plugin.get(item.type, function(script) {
+      try {
+        if (script == null) {
+          throw TypeError("Can't find plugin for '" + item.type + "'");
         }
-      });
-    } catch (err) {
-      return error(err);
-    }
+        script.emit(div, item);
+        return script.bind(div, item);
+      } catch (err) {
+        return error(err);
+      }
+    });
+  };
+
+  wiki.registerPlugin = function(pluginName, pluginFn) {
+    return window.plugins[pluginName] = pluginFn($);
   };
 
   window.plugins = {
@@ -1242,7 +1314,7 @@ require.define("/lib/plugin.coffee", function (require, module, exports, __dirna
       },
       bind: function(div, item) {
         return div.dblclick(function() {
-          return wiki.textEditor(div, item);
+          return wiki.textEditor(div, item, null, true);
         });
       }
     },
@@ -1260,25 +1332,6 @@ require.define("/lib/plugin.coffee", function (require, module, exports, __dirna
           return wiki.dialog(item.text, this);
         });
       }
-    },
-    changes: {
-      emit: function(div, item) {
-        var a, i, key, ul, _ref, _results;
-        div.append(ul = $('<ul />').append(localStorage.length ? $('<input type="button" value="discard all" />').css('margin-top', '10px') : $('<p>empty</p>')));
-        _results = [];
-        for (i = 0, _ref = localStorage.length; 0 <= _ref ? i < _ref : i > _ref; 0 <= _ref ? i++ : i--) {
-          key = localStorage.key(i);
-          a = $('<a class="internal" href="#" />').append(key).data('pageName', key);
-          _results.push(ul.prepend($('<li />').append(a)));
-        }
-        return _results;
-      },
-      bind: function(div, item) {
-        return div.find('input').click(function() {
-          localStorage.clear();
-          return div.find('li').remove();
-        });
-      }
     }
   };
 
@@ -1288,7 +1341,7 @@ require.define("/lib/plugin.coffee", function (require, module, exports, __dirna
 
 require.define("/lib/refresh.coffee", function (require, module, exports, __dirname, __filename) {
 (function() {
-  var createFactory, emitHeader, handleDragging, initAddButton, initDragging, pageHandler, plugin, refresh, state, util;
+  var createFactory, emitHeader, handleDragging, initAddButton, initDragging, neighborhood, pageHandler, plugin, refresh, state, util;
 
   util = require('./util.coffee');
 
@@ -1297,6 +1350,8 @@ require.define("/lib/refresh.coffee", function (require, module, exports, __dirn
   plugin = require('./plugin.coffee');
 
   state = require('./state.coffee');
+
+  neighborhood = require('./neighborhood.coffee');
 
   handleDragging = function(evt, ui) {
     var action, before, beforeElement, destinationPageElement, equals, item, itemElement, journalElement, moveFromPage, moveToPage, moveWithinPage, order, sourcePageElement, thisPageElement;
@@ -1312,14 +1367,19 @@ require.define("/lib/refresh.coffee", function (require, module, exports, __dirn
     moveWithinPage = !sourcePageElement || equals(sourcePageElement, destinationPageElement);
     moveFromPage = !moveWithinPage && equals(thisPageElement, sourcePageElement);
     moveToPage = !moveWithinPage && equals(thisPageElement, destinationPageElement);
+    if (moveFromPage) {
+      if (sourcePageElement.hasClass('ghost') || sourcePageElement.attr('id') === destinationPageElement.attr('id')) {
+        return;
+      }
+    }
     action = moveWithinPage ? (order = $(this).children().map(function(_, value) {
       return $(value).attr('data-id');
     }).get(), {
       type: 'move',
       order: order
-    }) : moveFromPage ? {
+    }) : moveFromPage ? (wiki.log('drag from', sourcePageElement.find('h1').text()), {
       type: 'remove'
-    } : moveToPage ? (itemElement.data('pageElement', thisPageElement), beforeElement = itemElement.prev('.item'), before = wiki.getItem(beforeElement), {
+    }) : moveToPage ? (itemElement.data('pageElement', thisPageElement), beforeElement = itemElement.prev('.item'), before = wiki.getItem(beforeElement), {
       type: 'add',
       item: item,
       after: before != null ? before.id : void 0
@@ -1369,7 +1429,7 @@ require.define("/lib/refresh.coffee", function (require, module, exports, __dirn
   emitHeader = function(pageElement, page) {
     var date, rev, site;
     site = $(pageElement).data('site');
-    if (site != null) {
+    if ((site != null) && site !== 'local' && site !== 'origin' && site !== 'view') {
       $(pageElement).append("<h1><a href=\"//" + site + "\"><img src = \"/remote/" + site + "/favicon.png\" height = \"32px\"></a> " + page.title + "</h1>");
     } else {
       $(pageElement).append($("<h1 />").append($("<a />").attr('href', '/').append($("<img>").error(function(e) {
@@ -1380,16 +1440,27 @@ require.define("/lib/refresh.coffee", function (require, module, exports, __dirn
     }
     if ((rev = pageElement.attr('id').split('_rev')[1]) != null) {
       date = page.journal[page.journal.length - 1].date;
-      $(pageElement).append($('<h4 class="revision"/>').html(date != null ? util.formatDate(date) : "Revision " + rev));
-      return $(pageElement).addClass('ghost');
+      return $(pageElement).addClass('ghost').data('rev', rev).append($("<h2 class=\"revision\">\n  <span>\n    " + (date != null ? util.formatDate(date) : "Revision " + rev) + "\n  </span>\n</h2>"));
     }
   };
 
   module.exports = refresh = wiki.refresh = function() {
-    var buildPage, pageElement;
+    var buildPage, createPage, pageElement, pageInformation, registerNeighbors, rev, slug, whenGotten, _ref;
     pageElement = $(this);
-    buildPage = function(data) {
-      var action, addContext, context, footerElement, journalElement, page, site, slug, storyElement, _i, _len, _ref, _ref2;
+    _ref = pageElement.attr('id').split('_rev'), slug = _ref[0], rev = _ref[1];
+    pageInformation = {
+      slug: slug,
+      rev: rev,
+      site: pageElement.data('site'),
+      wasServerGenerated: pageElement.attr('data-server-generated') === 'true'
+    };
+    buildPage = function(data, siteFound) {
+      var action, addContext, context, footerElement, journalElement, page, site, storyElement, _i, _len, _ref2, _ref3;
+      if (siteFound === 'local') {
+        pageElement.addClass('local');
+      } else {
+        pageElement.data('site', siteFound);
+      }
       if (!(data != null)) {
         pageElement.find('.item').each(function(i, each) {
           var item;
@@ -1403,24 +1474,24 @@ require.define("/lib/refresh.coffee", function (require, module, exports, __dirn
         $(pageElement).data("data", page);
         slug = $(pageElement).attr('id');
         site = $(pageElement).data('site');
-        context = ['origin'];
+        context = ['view'];
         if (site != null) context.push(site);
         addContext = function(site) {
           if ((site != null) && !_.include(context, site)) {
             return context.push(site);
           }
         };
-        _ref = page.journal.slice(0).reverse();
-        for (_i = 0, _len = _ref.length; _i < _len; _i++) {
-          action = _ref[_i];
+        _ref2 = page.journal.slice(0).reverse();
+        for (_i = 0, _len = _ref2.length; _i < _len; _i++) {
+          action = _ref2[_i];
           addContext(action.site);
         }
         wiki.resolutionContext = context;
-        wiki.log('build', slug, 'site', site, 'context', context.join(' => '));
+        wiki.log('buildPage', slug, 'site', site, 'context', context.join(' => '));
         emitHeader(pageElement, page);
-        _ref2 = ['story', 'journal', 'footer'].map(function(className) {
+        _ref3 = ['story', 'journal', 'footer'].map(function(className) {
           return $("<div />").addClass(className).appendTo(pageElement);
-        }), storyElement = _ref2[0], journalElement = _ref2[1], footerElement = _ref2[2];
+        }), storyElement = _ref3[0], journalElement = _ref3[1], footerElement = _ref3[2];
         $.each(page.story, function(i, item) {
           var div;
           if ($.isArray(item)) item = item[0];
@@ -1431,15 +1502,105 @@ require.define("/lib/refresh.coffee", function (require, module, exports, __dirn
         $.each(page.journal, function(i, action) {
           return wiki.addToJournal(journalElement, action);
         });
-        journalElement.append("<div class=\"control-buttons\">\n  <a href=\"#\" class=\"button fork-page\" title=\"fork this page\">" + wiki.symbols['fork'] + "</a>\n  <a href=\"#\" class=\"button add-factory\" title=\"add paragraph\">" + wiki.symbols['add'] + "</a>\n</div>");
+        journalElement.append("<div class=\"control-buttons\">\n  <a href=\"#\" class=\"button fork-page\" title=\"fork this page\">" + util.symbols['fork'] + "</a>\n  <a href=\"#\" class=\"button add-factory\" title=\"add paragraph\">" + util.symbols['add'] + "</a>\n</div>");
         footerElement.append('<a id="license" href="http://creativecommons.org/licenses/by-sa/3.0/">CC BY-SA 3.0</a> . ').append("<a class=\"show-page-source\" href=\"/" + slug + ".json?random=" + (util.randomBytes(4)) + "\" title=\"source\">JSON</a>");
         state.setUrl();
       }
       initDragging(pageElement);
       return initAddButton(pageElement);
     };
-    return pageHandler.get(pageElement, buildPage);
+    createPage = function() {
+      var title;
+      title = $("a[href=\"/" + slug + ".html\"]:last").text();
+      title || (title = slug);
+      pageHandler.put($(pageElement), {
+        type: 'create',
+        id: util.randomBytes(8),
+        item: {
+          title: title
+        }
+      });
+      return buildPage({
+        title: title
+      });
+    };
+    registerNeighbors = function(data, site) {
+      var action, item, _i, _j, _len, _len2, _ref2, _ref3, _results;
+      if (_.include(['local', 'origin', 'view', null, void 0], site)) {
+        neighborhood.registerNeighbor(location.host);
+      } else {
+        neighborhood.registerNeighbor(site);
+      }
+      _ref2 = data.story || [];
+      for (_i = 0, _len = _ref2.length; _i < _len; _i++) {
+        item = _ref2[_i];
+        if (item.site != null) neighborhood.registerNeighbor(item.site);
+      }
+      _ref3 = data.journal || [];
+      _results = [];
+      for (_j = 0, _len2 = _ref3.length; _j < _len2; _j++) {
+        action = _ref3[_j];
+        if (action.site != null) {
+          _results.push(neighborhood.registerNeighbor(action.site));
+        } else {
+          _results.push(void 0);
+        }
+      }
+      return _results;
+    };
+    whenGotten = function(data, siteFound) {
+      buildPage(data, siteFound);
+      return registerNeighbors(data, siteFound);
+    };
+    return pageHandler.get({
+      whenGotten: whenGotten,
+      whenNotGotten: createPage,
+      pageInformation: pageInformation
+    });
   };
+
+}).call(this);
+
+});
+
+require.define("/lib/neighborhood.coffee", function (require, module, exports, __dirname, __filename) {
+(function() {
+  var neighborhood, _ref;
+
+  module.exports = neighborhood = {};
+
+  if ((_ref = wiki.neighborhood) == null) wiki.neighborhood = {};
+
+  neighborhood.registerNeighbor = function(site) {
+    var neighborInfo;
+    neighborInfo = {};
+    if (wiki.neighborhood[site] != null) return;
+    wiki.neighborhood[site] = site;
+    return $('body').trigger('new-neighbor', site);
+  };
+
+  neighborhood.listNeighbors = function() {
+    return _.keys(wiki.neighborhood);
+  };
+
+  $(function() {
+    var $neighborhood, flag;
+    $neighborhood = $('.neighborhood');
+    flag = function(site) {
+      return "<span class=\"neighbor\">\n  <img src=\"http://" + site + "/favicon.png\" title=\"" + site + "\">\n</span>";
+    };
+    return $('body').on('neighborhood-change', function() {
+      $neighborhood.empty();
+      return _.each(neighborhood.listNeighbors(), function(site) {
+        return $neighborhood.append(flag(site));
+      });
+    }).on('new-neighbor', function(e, site) {
+      wiki.log('new-neighbor', site);
+      return $neighborhood.append(flag(site));
+    }).delegate('.neighbor img', 'click', function(e) {
+      return wiki.doInternalLink('welcome-visitors', null, this.title);
+    });
+  });
 
 }).call(this);
 

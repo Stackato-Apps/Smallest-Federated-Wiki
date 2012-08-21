@@ -13,27 +13,23 @@ window.plugins.radar =
           "Carcinogenicity": 7
           "Acute Toxicity": 7
           "Chronic Toxicity": 7
-          "Reproductive/Endocrine Disrupter Toxicity": 4
+          "Reproductive / Endocrine Disrupter Toxicity": 4
           "Chemistry Total": 25
           "Energy Intensity": 10
           "GHG Emissions Intensity": 15
-          "Energy/GHG Emissions Total": 25
+          "Energy / GHG Emissions Total": 25
           "Water Intensity": 18
           "Land Use Intensity": 7
-          "Water/ Land Use Total": 25
+          "Water / Land Use Total": 25
           "Hazardous Waste": 10
           "MSW": 6.25
-          "Industrial waste": 5
-          "Recyclable/ Compostable waste": 2.5
-          "Mineral waste": 1.25
+          "Industrial Waste": 5
+          "Recyclable / Compostable Waste": 2.5
+          "Mineral Waste": 1.25
           "Physical Waste Total": 25
-          "Total score": 100
+          "Total Score": 100
 
-        candidates = $(".item:lt(#{$('.item').index(div)})")
-        if (who = candidates.filter ".radar-source").size()
-          data = (d.radarData() for d in who)
-          console.log ['got radar-source', who]
-          console.log ['data', data]
+        limitsFromData = (data) ->
           max = -Infinity
           keys = {}
           for d in data
@@ -43,9 +39,18 @@ window.plugins.radar =
           limit = {}
           for k,v of keys
             limit[k] = max
+
+        candidates = $(".item:lt(#{$('.item').index(div)})")
+        if (who = candidates.filter ".radar-source").size()
+          limitsFromData (data = (d.radarData() for d in who))
         else if (who = candidates.filter ".data").size()
+          who = who.filter (d) -> $(this).data('item').data.length == 1
           data = ($(d).data('item').data[0] for d in who)
         else throw "Can't find suitable data"
+
+        # if item.text?
+        #   for line in item.text.split /\n/
+        #     console.log ['line', line]
 
         keys = Object.keys(limit)
 

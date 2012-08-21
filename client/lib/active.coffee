@@ -7,14 +7,13 @@ findScrollContainer = ->
   if scrolled.length > 0
     scrolled
   else
-    $("body, html").scrollLeft(4).filter(-> $(this).scrollLeft() > 0).scrollTop(0)
+    $("body, html").scrollLeft(12).filter(-> $(this).scrollLeft() > 0).scrollTop(0)
 
 scrollTo = (el) ->
   active.scrollContainer ?= findScrollContainer()
   bodyWidth = $("body").width()
   minX = active.scrollContainer.scrollLeft()
   maxX = minX + bodyWidth
-  wiki.log 'scrollTo', el, el.position()
   target = el.position().left
   width = el.outerWidth(true)
   contentWidth = $(".page").outerWidth(true) * $(".page").size()
@@ -28,7 +27,6 @@ scrollTo = (el) ->
 
 active.set = (el) ->
   el = $(el)
-  wiki.log 'set active', el
   $(".active").removeClass("active")
   scrollTo el.addClass("active")
 

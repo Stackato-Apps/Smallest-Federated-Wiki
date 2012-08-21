@@ -1,5 +1,22 @@
 module.exports = util = {}
 
+util.symbols =
+  create: '☼'
+  add: '+'
+  edit: '✎'
+  fork: '⚑'
+  move: '↕'
+  remove: '✕'
+
+util.resolveLinks = (string) ->
+  renderInternalLink = (match, name) ->
+    # spaces become 'slugs', non-alpha-num get removed
+    slug = util.asSlug name
+    "<a class=\"internal\" href=\"/#{slug}.html\" data-page-name=\"#{slug}\" title=\"#{wiki.resolutionContext.join(' => ')}\">#{name}</a>"
+  string
+    .replace(/\[\[([^\]]+)\]\]/gi, renderInternalLink)
+    .replace(/\[(http.*?) (.*?)\]/gi, "<a class=\"external\" target=\"_blank\" href=\"$1\">$2</a>")
+
 util.randomByte = ->
   (((1+Math.random())*0x100)|0).toString(16).substring(1)
 
@@ -28,7 +45,18 @@ util.formatDate = (msSinceEpoch) ->
   h = if h == 0 then 12 else if h > 12 then h - 12 else h
   mi = (if d.getMinutes() < 10 then "0" else "") + d.getMinutes()
   sec = (if d.getSeconds() < 10 then "0" else "") + d.getSeconds()
-  "#{wk} #{mo} #{day} #{yr} #{h}:#{mi}:#{sec} #{am}"
+  "#{wk} #{mo} #{day}, #{yr}<br>#{h}:#{mi}:#{sec} #{am}"
+
+util.formatElapsedTime = (msSinceEpoch) ->
+  msecs = (new Date().getTime() - msSinceEpoch)
+  return "#{Math.floor msecs} milliseconds ago" if (secs = msecs/1000) < 2
+  return "#{Math.floor secs} seconds ago" if (mins = secs/60) < 2
+  return "#{Math.floor mins} minutes ago" if (hrs = mins/60) < 2
+  return "#{Math.floor hrs} hours ago" if (days = hrs/24) < 2
+  return "#{Math.floor days} days ago" if (weeks = days/7) < 2
+  return "#{Math.floor weeks} weeks ago" if (months = days/31) < 2
+  return "#{Math.floor months} months ago" if (years = days/365) < 2
+  return "#{Math.floor years} years ago"
 
 util.asSlug = (name) ->
   name.replace(/\s/g, '-').replace(/[^A-Za-z0-9-]/g, '').toLowerCase()
@@ -40,26 +68,30 @@ util.emptyPage = () ->
   story: []
   journal: []
 
-# gets position of caret in a text area
-util.getCaretPosition = (div) ->
-  if !div? then return null
-  caretPos = 0
-  # for IE
-  if document.selection
-    div.focus()
-    sel = document.selection.createRange()
-    sel.moveStart "character", -div.value.length
-    caretPos = sel.text.length
-  # for the rest of the world
-  else caretPos = div.selectionStart  if div.selectionStart?
-  caretPos
 
-util.setCaretPosition = (elem, caretPos) ->
-  if elem?
-    if elem.createTextRange # IE
-      range = elem.createTextRange()
+# If the selection start and selection end are both the same,
+# then you have the caret position. If there is selected text, 
+# the browser will not tell you where the caret is, but it will 
+# either be at the beginning or the end of the selection 
+#(depending on the direction of the selection).
+util.getSelectionPos = (jQueryElement) -> 
+  el = jQueryElement.get(0) # gets DOM Node from from jQuery wrapper
+  if document.selection # IE
+    el.focus()
+    sel = document.selection.createRange()
+    sel.moveStart 'character', -el.value.length
+    iePos = sel.text.length
+    {start: iePos, end: iePos}
+  else
+    {start: el.selectionStart, end: el.selectionEnd}
+
+util.setCaretPosition = (jQueryElement, caretPos) ->
+  el = jQueryElement.get(0)
+  if el?
+    if el.createTextRange # IE
+      range = el.createTextRange()
       range.move "character", caretPos
       range.select()
     else # rest of the world
-      elem.setSelectionRange caretPos, caretPos
-    elem.focus()
+      el.setSelectionRange caretPos, caretPos
+    el.focus()
