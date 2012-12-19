@@ -1,4 +1,6 @@
-module.exports = util = {}
+module.exports = wiki.util = util = {}
+
+util.createSynopsis = require('./synopsis')
 
 util.symbols =
   create: '☼'
@@ -15,7 +17,7 @@ util.resolveLinks = (string) ->
     "<a class=\"internal\" href=\"/#{slug}.html\" data-page-name=\"#{slug}\" title=\"#{wiki.resolutionContext.join(' => ')}\">#{name}</a>"
   string
     .replace(/\[\[([^\]]+)\]\]/gi, renderInternalLink)
-    .replace(/\[(http.*?) (.*?)\]/gi, "<a class=\"external\" target=\"_blank\" href=\"$1\">$2</a>")
+    .replace(/\[(http.*?) (.*?)\]/gi, """<a class="external" target="_blank" href="$1" title="$1" rel="nofollow">$2 <img src="/images/external-link-ltr-icon.png"></a>""")
 
 util.randomByte = ->
   (((1+Math.random())*0x100)|0).toString(16).substring(1)
@@ -61,6 +63,8 @@ util.formatElapsedTime = (msSinceEpoch) ->
 util.asSlug = (name) ->
   name.replace(/\s/g, '-').replace(/[^A-Za-z0-9-]/g, '').toLowerCase()
 
+wiki?.asSlug = util.asSlug
+
 # DEFAULTS for required fields
 
 util.emptyPage = () ->
@@ -95,3 +99,4 @@ util.setCaretPosition = (jQueryElement, caretPos) ->
     else # rest of the world
       el.setSelectionRange caretPos, caretPos
     el.focus()
+

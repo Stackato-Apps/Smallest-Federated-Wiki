@@ -82,10 +82,21 @@ To install rvm:
 
 	curl -L https://get.rvm.io | bash -s stable --ruby
 
-Then run: 
+Then install Ruby, from one of the following versions:
+
+	Mac-Specific note: On the latest OS X versions, you first need the gcc compiler. 
+	One way is to install XCode from Apple Store. (Free)
+	The Command Line Tools must be installed. See the Downloads section of Xcode's preferences.
 
 	rvm install 1.9.2
 	rvm use 1.9.2
+	
+	Mac-Specific note: If you see an error message such as the following on latest versions of OS X,
+		"The provided compiler '/usr/bin/gcc' is LLVM based, it is not yet
+		fully supported by ruby and gems, please read `rvm requirements`."
+		try:
+			rvm install 1.9.2 --with-gcc=clang
+			rvm use 1.9.2
 
 The software has been known to run trouble-free under version 1.8.5 so long as appropriate gem versions are installed. The latest releases of OSX work better with 1.9.3.
 
@@ -113,9 +124,20 @@ Running specs
 
 The acceptance test suite is written using RSpec 2 and utilizes Selenium heavily. You must have a recent version of Firefox installed to run the test suite.
 
+The spec files are kept in the /spec folder.
+
 To run an individual spec, run
 
 	bundle exec rspec spec/[spec name].rb
+	
+Where the [spec name].rb can be
+
+    spec/favicon_spec.rb 
+    spec/integration_spec.rb 
+    spec/page_spec.rb 
+    spec/server_helpers_spec.rb 
+    spec/server_spec.rb 
+    spec/stores/couch_spec.rb
 
 To run all specs, run
 
@@ -124,7 +146,11 @@ To run all specs, run
 Running coffeescript tests
 =============
 
-Client-side unit and integration tests are written using mocha. The test runner is an HTML page (runtests.html) which is self-served by the wiki server itself. If your server is running at http:///localhost:9292 then you can run your tests by going to http://localhost:9292/runtests.html. Note that that test runner page does need to be accessed via a server - loading the page in a browser directly from your filesystem will not work correctly.
+Client-side unit and integration tests are written using [mocha](http://visionmedia.github.com/mocha/). The test runner is an HTML page (runtests.html) which is self-served by the wiki server itself. 
+
+If your server is running at http:///localhost:9292 then you can run your tests by invoking http://localhost:9292/runtests.html. 
+
+**Note**: The test runner page must be accessed via a server. loading the page in a browser directly from your filesystem will not work correctly.
 
 Looking For Code Bloat
 ======================

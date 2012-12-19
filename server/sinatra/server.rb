@@ -72,42 +72,52 @@ class Controller < Sinatra::Base
   end
 
   post '/login' do
-    root_url = request.url.match(/(^.*\/{2}[^\/]*)/)[1]
-    identifier_file = File.join farm_status, "open_id.identifier"
-    identifier = Store.get_text(identifier_file)
-    unless identifier
-      identifier = params[:identifier]
-    end
-    open_id_request = openid_consumer.begin(identifier)
+    begin
+      root_url = request.url.match(/(^.*\/{2}[^\/]*)/)[1]
+      identifier_file = File.join farm_status, "open_id.identifier"
+      identifier = Store.get_text(identifier_file)
+      unless identifier
+        identifier = params[:identifier]
+      end
+      open_id_request = openid_consumer.begin(identifier)
 
-    redirect open_id_request.redirect_url(root_url, root_url + "/login/openid/complete")
+      redirect open_id_request.redirect_url(root_url, root_url + "/login/openid/complete")
+    rescue
+      oops 400, "Trouble starting OpenID<br>Did you enter a proper endpoint?"
+    end
   end
 
   get '/login/openid/complete' do
-    response = openid_consumer.complete(params, request.url)
-    case response.status
-      when OpenID::Consumer::FAILURE
-        oops 401, "Login failure"
-      when OpenID::Consumer::SETUP_NEEDED
-        oops 400, "Setup needed"
-      when OpenID::Consumer::CANCEL
-        oops 400, "Login cancelled"
-      when OpenID::Consumer::SUCCESS
-        id = params['openid.identity']
-        id_file = File.join farm_status, "open_id.identity"
-        stored_id = Store.get_text(id_file)
-        if stored_id
-          if stored_id == id
-            # login successful
-            authenticate!
+    begin
+      response = openid_consumer.complete(params, request.url)
+      case response.status
+        when OpenID::Consumer::FAILURE
+          oops 401, "Login failure"
+        when OpenID::Consumer::SETUP_NEEDED
+          oops 400, "Setup needed"
+        when OpenID::Consumer::CANCEL
+          oops 400, "Login cancelled"
+        when OpenID::Consumer::SUCCESS
+          id = params['openid.identity']
+          id_file = File.join farm_status, "open_id.identity"
+          stored_id = Store.get_text(id_file)
+          if stored_id
+            if stored_id == id
+              # login successful
+              authenticate!
+            else
+              oops 403, "This is not your wiki"
+            end
           else
-            oops 403, "This is not your wiki"
+            Store.put_text id_file, id
+            # claim successful
+            authenticate!
           end
         else
-          Store.put_text id_file, id
-          # claim successful
-          authenticate!
-        end
+          oops 400, "Trouble with OpenID"
+      end
+    rescue
+      oops 400, "Trouble running OpenID<br>Did you enter a proper endpoint?"
     end
   end
 
@@ -119,6 +129,7 @@ class Controller < Sinatra::Base
 
   get '/favicon.png' do
     content_type 'image/png'
+    headers 'Cache-Control' => "max-age=3600"
     cross_origin
     Favicon.get_or_create(File.join farm_status, 'favicon.png')
   end
@@ -138,15 +149,15 @@ class Controller < Sinatra::Base
     haml :view, :locals => {:pages => [ {:id => identity['root']} ]}
   end
 
-  get %r{^/plugins/factory(/factory)?.js$} do
-    catalog = Dir.glob(File.join(APP_ROOT, "client/plugins/*/factory.json")).collect do |info|
-      begin
-        JSON.parse(File.read(info))
-      rescue
-      end
-    end.reject {|info| info.nil?}
-    "window.catalog = #{JSON.generate(catalog)};" + File.read(File.join(APP_ROOT, "client/plugins/meta-factory.js"))
-  end
+  # get %r{^/plugins/factory(/factory)?.js$} do
+  #   catalog = Dir.glob(File.join(APP_ROOT, "client/plugins/*/factory.json")).collect do |info|
+  #     begin
+  #       JSON.parse(File.read(info))
+  #     rescue
+  #     end
+  #   end.reject {|info| info.nil?}
+  #   "window.catalog = #{JSON.generate(catalog)};" + File.read(File.join(APP_ROOT, "client/plugins/meta-factory.js"))
+  # end
 
   get %r{^/data/([\w -]+)$} do |search|
     content_type 'application/json'
@@ -195,8 +206,21 @@ class Controller < Sinatra::Base
     content_type 'application/json'
     cross_origin
     pages = Store.annotated_pages farm_page.directory
-    sitemap = pages.collect {|p| {"slug" => p['name'], "title" => p['title'], "date" => p['updated_at'].to_i*1000}}
+    sitemap = pages.collect {|p| {"slug" => p['name'], "title" => p['title'], "date" => p['updated_at'].to_i*1000, "synopsis" => synopsis(p)}}
     JSON.pretty_generate sitemap
+  end
+
+  get '/system/factories.json' do
+    content_type 'application/json'
+    cross_origin
+    # return "[]"
+    factories = Dir.glob(File.join(APP_ROOT, "client/plugins/*/factory.json")).collect do |info|
+      begin
+        JSON.parse(File.read(info))
+      rescue
+      end
+    end.reject {|info| info.nil?}
+    JSON.pretty_generate factories
   end
 
   get '/recent-changes.json' do
@@ -228,42 +252,6 @@ class Controller < Sinatra::Base
     JSON.pretty_generate(page)
   end
 
-  # get '/global-changes.json' do
-  #   content_type 'application/json'
-  #   cross_origin
-  #   bins = Hash.new {|hash, key| hash[key] = Array.new}
-  #   Dir.chdir(File.join(self.class.data_root, "farm")) do
-  #     Dir.glob("*") do |site|
-  #       Dir.chdir(File.join(site,'pages')) do
-  #         count = 100
-  #         Dir.glob("*").collect do |slug|
-  #           dt = Time.now - File.new(slug).mtime
-  #           break if (count -= 1) <= 0
-  #           slug = "#{site}/#{slug}"
-  #           bins[(dt/=60)<1?'Minute':(dt/=60)<1?'Hour':(dt/=24)<1?'Day':(dt/=7)<1?'Week':(dt/=4)<1?'Month':(dt/=3)<1?'Season':(dt/=4)<1?'Year':'Forever']<<slug
-  #         end
-  #       end
-  #     end
-  #   end
-  #   story = []
-  #   ['Minute', 'Hour', 'Day', 'Week'].each do |key|
-  #     next unless bins[key].length>0
-  #     story << {'type' => 'paragraph', 'text' => "<h3>Within a #{key}</h3>", 'id' => RandomId.generate}
-  #     bins[key].each do |remote|
-  #       (site,slug) = remote.split '/'
-  #       farm = Page.new
-  #       farm.directory = File.join(self.class.data_root, "farm/#{site}")
-  #       farm.default_directory = File.join APP_ROOT, "default-data", "pages"
-  #       page = farm.get(slug)
-  #       next if page['story'].length == 0
-  #       site = "#{site}#{request.port==80 ? '' : ':'+request.port.to_s}"
-  #       story << {'type' => 'reference', 'site' => site, 'slug' => slug, 'title' => page['title'], 'text' => "", 'id' => RandomId.generate}
-  #     end
-  #   end
-  #   page = {'title' => 'Recent Changes', 'story' => story}
-  #   JSON.pretty_generate(page)
-  # end
-
   get %r{^/([a-z0-9-]+)\.json$} do |name|
     content_type 'application/json'
     serve_page name
@@ -290,7 +278,12 @@ class Controller < Sinatra::Base
       return halt 409 if farm_page.exists?(name)
       page = action['item'].clone
     elsif action['type'] == 'fork'
-      page = JSON.parse RestClient.get("#{action['site']}/#{name}.json")
+      if action['item']
+        page = action['item'].clone
+        action.delete 'item'
+      else
+        page = JSON.parse RestClient.get("#{action['site']}/#{name}.json")
+      end
     else
       page = farm_page.get(name)
     end

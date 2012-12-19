@@ -5,8 +5,10 @@ plugin = require('./plugin.coffee')
 state = require('./state.coffee')
 active = require('./active.coffee')
 refresh = require('./refresh.coffee')
+require ('./dom.coffee')
 
 resolveLinks = wiki.resolveLinks = util.resolveLinks
+wiki.createSynopsis = util.createSynopsis
 
 Array::last = ->
   this[@length - 1]
@@ -42,7 +44,7 @@ $ ->
 # FUNCTIONS used by plugins and elsewhere
 
   wiki.log = (things...) ->
-    console.log things if console?.log?
+    console.log things... if console?.log?
 
   wiki.resolutionContext = []
   resolveFrom = wiki.resolveFrom = (addition, callback) ->
@@ -57,7 +59,7 @@ $ ->
     prev = journalElement.find(".edit[data-id=#{action.id || 0}]") if action.type == 'edit'
     actionTitle = action.type
     actionTitle += " #{util.formatElapsedTime(action.date)}" if action.date?
-    actionElement = $("<a href=\"\#\" /> ").addClass("action").addClass(action.type)
+    actionElement = $("""<a href="#" /> """).addClass("action").addClass(action.type)
       .text(util.symbols[action.type])
       .attr('title',actionTitle)
       .attr('data-id', action.id || "0")
@@ -67,7 +69,7 @@ $ ->
       actionElement.insertBefore(controls)
     else
       actionElement.appendTo(journalElement)
-    if action.type == 'fork'
+    if action.type == 'fork' and action.site?
       actionElement
         .css("background-image", "url(//#{action.site}/favicon.png)")
         .attr("href", "//#{action.site}/#{pageElement.attr('id')}.html")
@@ -76,6 +78,31 @@ $ ->
 
   useLocalStorage = wiki.useLocalStorage = ->
     $(".login").length > 0
+
+  sleep = (time, done) -> setTimeout done, time
+
+  wiki.removeItem = ($item, item) ->
+    pageHandler.put $item.parents('.page:first'), {type: 'remove', id: item.id}
+    $item.remove()
+
+  wiki.createItem = ($page, $before, item) ->
+    $page = $before.parents('.page') unless $page?
+    item.id = util.randomBytes(8)
+    $item = $ """
+      <div class="item #{item.type}" data-id="#{}"</div>
+    """
+    $item
+      .data('item', item)
+      .data('pageElement', $page)
+    if $before?
+      $before.after $item
+    else
+      $page.find('.story').append $item
+    plugin.do $item, item
+    before = wiki.getItem $before
+    sleep 500, ->
+      pageHandler.put $page, {item, id: item.id, type: 'add', after: before?.id}
+    $item
 
   createTextElement = (pageElement, beforeElement, initialText) ->
     item =
@@ -92,7 +119,6 @@ $ ->
     plugin.do itemElement, item
     itemBefore = wiki.getItem beforeElement
     wiki.textEditor itemElement, item
-    sleep = (time, code) -> setTimeout code, time
     sleep 500, -> pageHandler.put pageElement, {item: item, id: item.id, type: 'add', after: itemBefore?.id}
 
   textEditor = wiki.textEditor = (div, item, caretPos, doubleClicked) ->
@@ -171,7 +197,7 @@ $ ->
   doInternalLink = wiki.doInternalLink = (name, page, site=null) ->
     name = util.asSlug(name)
     $(page).nextAll().remove() if page?
-    createPage(name,site)
+    wiki.createPage(name,site)
       .appendTo($('.main'))
       .each refresh
     active.set($('.page').last())
@@ -189,29 +215,33 @@ $ ->
       if 0 <= newIndex < pages.length
         active.set(pages.eq(newIndex))
 
-# FUNCTIONS sensing extant and desired page configurations
-
-
-  createPage = wiki.createPage = (name, loc) ->
-    if loc and loc isnt 'view'
-      $("<div/>").attr('id', name).attr('data-site', loc).addClass("page")
-    else
-      $("<div/>").attr('id', name).addClass("page")
-
 # HANDLERS for jQuery events
 
   $(window).on 'popstate', state.show
 
   $(document)
     .ajaxError (event, request, settings) ->
+      return if request.status == 0 or request.status == 404
       wiki.log 'ajax error', event, request, settings
-      msg = "<li class='error'>Error on #{settings.url}: #{request.responseText}</li>"
-      $('.main').prepend msg unless request.status == 404
+      $('.main').prepend """
+        <li class='error'>
+          Error on #{settings.url}: #{request.responseText}
+        </li>
+      """
+
+  getTemplate = (slug, done) ->
+    return done(null) unless slug
+    wiki.log 'getTemplate', slug
+    pageHandler.get
+      whenGotten: (data,siteFound) -> done(data.story)
+      whenNotGotten: -> done(null)
+      pageInformation: {slug: slug}
 
   finishClick = (e, name) ->
     e.preventDefault()
     page = $(e.target).parents('.page') unless e.shiftKey
     doInternalLink name, page, $(e.target).data('site')
+    return false
 
   $('.main')
     .delegate '.show-page-source', 'click', (e) ->
@@ -244,8 +274,7 @@ $ ->
     .delegate '.action', 'click', (e) ->
       e.preventDefault()
       $action = $(e.target)
-      if $action.is('.fork')
-        name = $(e.target).data('slug')
+      if $action.is('.fork') and (name = $action.data('slug'))?
         pageHandler.context = [$action.data('site')]
         finishClick e, name
       else
@@ -253,31 +282,65 @@ $ ->
         slug = util.asSlug($page.data('data').title)
         rev = $(this).parent().children().index($action)
         $page.nextAll().remove() unless e.shiftKey
-        createPage("#{slug}_rev#{rev}", $page.data('site'))
+        wiki.createPage("#{slug}_rev#{rev}", $page.data('site'))
           .appendTo($('.main'))
           .each refresh
         active.set($('.page').last())
 
     .delegate '.fork-page', 'click', (e) ->
       pageElement = $(e.target).parents('.page')
-      return unless (remoteSite = pageElement.data('site'))?
-      pageHandler.put pageElement, {type:'fork', site: remoteSite}
+      if pageElement.hasClass('local')
+        unless useLocalStorage()
+          item = pageElement.data('data')
+          pageElement.removeClass('local')
+          pageHandler.put pageElement, {type: 'fork', item} # push
+      else
+        if (remoteSite = pageElement.data('site'))?
+          pageHandler.put pageElement, {type:'fork', site: remoteSite} # pull
 
     .delegate '.action', 'hover', ->
       id = $(this).attr('data-id')
       $("[data-id=#{id}]").toggleClass('target')
+      $('.main').trigger('rev')
 
     .delegate '.item', 'hover', ->
       id = $(this).attr('data-id')
       $(".action[data-id=#{id}]").toggleClass('target')
 
+    .delegate 'button.create', 'click', (e) ->
+      getTemplate $(e.target).data('slug'), (story) ->
+        $page = $(e.target).parents('.page:first')
+        $page.removeClass 'ghost'
+        page = $page.data('data')
+        page.story = story||[]
+        pageHandler.put $page, {type: 'create', id: page.id, item: {title:page.title, story: story||undefined}}
+        wiki.buildPage page, null, $page.empty()
+
+    .delegate '.ghost', 'rev', (e) ->
+      wiki.log 'rev', e
+      $page = $(e.target).parents('.page:first')
+      $item = $page.find('.target')
+      position = $item.offset().top + $page.scrollTop() - $page.height()/2
+      wiki.log 'scroll', $page, $item, position
+      $page.stop().animate {scrollTop: postion}, 'slow'
+
+    .delegate '.score', 'hover', (e) ->
+      $('.main').trigger 'thumb', $(e.target).data('thumb')
+
   $(".provider input").click ->
     $("footer input:first").val $(this).attr('data-provider')
     $("footer form").submit()
 
-# CODE that gets the web page application started
-  state.first()
 
-  $('.page').each refresh
-  active.set($('.page').last())
+  if ($firstPage = $('.page:first')).data('serverGenerated')
+    # if the page appears to be a server generated page, but we're running javascript then
+    # redirect to the full-featured client-side version of the page.
+    # E.G. visiting /welcome-visitors.html with a JS-enabled browser will bounce you to /view/welcome-visitors
+    window.location = "/view/#{$firstPage.attr('id')}"
+  else
+    # CODE that gets the web page application started
+    state.first()
+
+    $('.page').each refresh
+    active.set($('.page').last())
 

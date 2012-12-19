@@ -58,6 +58,26 @@ img.remote,
   background-color: #cccccc;
 }
 
+.neighbor .wait {
+  -webkit-animation: rotatecw 2s linear infinite;
+  -moz-animation: rotatecw 2s linear infinite;
+  animation: rotatecw 2s linear infinite;
+}
+.fetch {
+  -webkit-animation: rotatecw .5s linear infinite;
+  -moz-animation: rotatecw .5s linear infinite;
+  animation: rotatecw .5s linear infinite;
+}
+.fail {
+  -webkit-transform: rotate(15deg);
+  -moz-transform: rotate(15deg);
+  transform: rotate(15deg);
+}
+@-webkit-keyframes rotatecw { from { -webkit-transform: rotate(0deg); } to { -webkit-transform: rotate(360deg); } }
+@-moz-keyframes rotatecw { from { -webkit-transform: rotate(0deg); } to { -webkit-transform: rotate(360deg); } }
+@keyframes rotatecw { from { -webkit-transform: rotate(0deg); } to { -webkit-transform: rotate(360deg); } }
+
+
 header {
   top: 0; }
 
@@ -75,9 +95,10 @@ footer {
   margin-bottom: 0.4em;
   background: #eeeeee;
   padding: 0.8em;
-  width: 40%; }
+  width: 42%;
+ }
 
-.image img {
+.image .thumbnail {
   width: 100%; }
 
 .journal {
@@ -168,10 +189,10 @@ footer {
   color: gray;
   font-size: 70%; }
 
-.federatedWiki .reference {
-  margin-top: 0;
-  color: gray;
-  font-size: 70%; }
+image.remote {
+  width:16px;
+  height:26px;
+}
 
 p.readout {
   text-align: center;
@@ -198,7 +219,7 @@ p.readout {
     z-index: 10; }
 
 .page.local {
-  border: 3px solid #EE8;
+  box-shadow: inset 0px 0px 40px 0px rgba(220,180,0,.7);
 }
 
 .factory,
