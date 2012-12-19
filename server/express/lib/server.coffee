@@ -9,23 +9,36 @@
 # anything not in the standard library is included in the repo, or
 # can be installed with an:
 #     npm install
-mkdirp = require('mkdirp')
-express = require('express')
-fs = require('fs')
-path = require('path')
-http = require('http')
-hbs = require('hbs')
-child_process = require('child_process')
-random = require('./random_id')
-passportImport = require('passport')
+
+# Standard lib
+fs = require 'fs'
+path = require 'path'
+http = require 'http'
+child_process = require 'child_process'
+spawn = child_process.spawn
+
+# From npm
+mkdirp = require 'mkdirp'
+express = require 'express'
+hbs = require 'hbs'
+passportImport = require 'passport'
 OpenIDstrat = require('passport-openid').Strategy
-defargs = require('./defaultargs')
+WebSocketServer = require('ws').Server
+glob = require 'glob'
+es = require 'event-stream'
+JSONStream = require 'JSONStream'
+async = require 'async'
+
+# Local files
+random = require './random_id'
+defargs = require './defaultargs'
+synopsis = require '../../../client/lib/synopsis'
 
 # pageFactory can be easily replaced here by requiring your own page handler
 # factory, which gets called with the argv object, and then has get and put
 # methods that accept the same arguments and callbacks. That would be the
 # easiest way to use the Smallest Federated Wiki with a database backend.
-pageFactory = require('./page')
+pageFactory = require './page'
 
 # When the server factory is first started attempt to retrieve the gitlog.
 gitlog = ''
@@ -37,19 +50,94 @@ gitVersion = child_process.exec('git log -10 --oneline || echo no git log', (err
 module.exports = exports = (argv) ->
   # Create the main application object, app.
   app = express.createServer()
+
   # defaultargs.coffee exports a function that takes the argv object
   # that is passed in and then does its
   # best to supply sane defaults for any arguments that are missing.
   argv = defargs(argv)
+
   app.startOpts = do ->
     options = {}
     for own k, v of argv
       options[k] = v
     options
+
+  log = (stuff...) ->
+    console.log stuff if argv.debug
+
+  loga = (stuff...) ->
+    console.log stuff
+
+  errorHandler = (req, res, next) ->
+    fired = false
+    res.e = (error, status) ->
+      if !fired
+        fired = true
+        res.statusCode = status or 500
+        res.end 'Server ' + error
+        log "Res sent:", res.statusCode, error
+      else
+        log "Allready fired", error
+    next()
+
   # Construct authentication handler.
   passport = new passportImport.Passport()
+
   # Tell pagehandler where to find data, and default data.
   app.pagehandler = pagehandler = pageFactory(argv)
+
+  ### Sockets ###
+  # General, gloabl use sockets
+  echoSocket     = new WebSocketServer({server: app, path: '/system/echo'})
+  logWatchSocket = new WebSocketServer({server: app, path: '/system/logwatch'})
+  counterSocket  = new WebSocketServer({server: app, path: '/system/counter'})
+  echoSocket.on('connection', (ws) ->
+    ws.on('message', (message) ->
+      log 'socktest message from client:', message
+      ws.send message, (e) ->
+        if e
+          log 'unable to send ws message:', e
+          return
+    )
+  )
+  logWatchSocket.on('connection', (ws) ->
+    logWatchSocket.on('fetch', (page) ->
+      reference =
+        title: page.title
+      ws.send JSON.stringify(reference), (e) ->
+        if e
+          log 'unable to send ws message: ', e
+          return
+    )
+    ws.on('message', (message) ->
+      log 'logWatch message from client:', message
+    )
+  )
+  counterSocket.on('connection', (ws) ->
+    counter = spawn( path.join(__dirname, '..', 'plugins', 'counter', 'counter.js') )
+    counter.stdout.on('data', (data) ->
+      ws.send data, (e) ->
+        if e
+          log 'client disconnected, killing child counter proc...'
+          counter.kill('SIGHUP')
+          return
+    )
+    counter.stderr.on('data', (data) ->
+      ws.send 'stderr: ' + data, (e) ->
+        if e
+          log 'client disconnected, killing child counter proc...'
+          counter.kill('SIGHUP')
+          return
+    )
+    counter.on('exit', (code) ->
+      ws.send 'child process exited with code: ' + code, (e) ->
+        if e
+          log 'client disconnected, killing child counter proc...'
+          counter.kill('SIGHUP')
+          return
+    )
+  )
+
 
   #### Setting up Authentication ####
   # The owner of a server is simply the open id url that the wiki
@@ -64,13 +152,13 @@ module.exports = exports = (argv) ->
     path.exists(argv.id, (exists) ->
       if exists
         fs.readFile(argv.id, (err, data) ->
-          if err then throw err
+          if err then return cb err
           owner += data
           cb())
       else if id
         fs.writeFile(argv.id, id, (err) ->
-          if err then throw err
-          console.log("Claimed by #{id}")
+          if err then return cb err
+          loga "Claimed by #{id}"
           owner = id
           cb())
       else
@@ -111,7 +199,7 @@ module.exports = exports = (argv) ->
     identifierField: 'identifier'
   },
   ((id, done) ->
-    console.log(id, done) #if argv.debug
+    loga id, done
     process.nextTick( ->
       if owner
         if id is owner
@@ -119,7 +207,8 @@ module.exports = exports = (argv) ->
         else
           done(null, false)
       else
-        setOwner id, ->
+        setOwner id, (e) ->
+          if e then return done(e)
           done(null, {id})
     )
   )))
@@ -127,7 +216,7 @@ module.exports = exports = (argv) ->
   # Handle errors thrown by passport openid by returning the oops page
   # with the error message.
   openIDErr = (err, req, res, next) ->
-    console.log err
+    log err
     if err.message[0..5] is 'OpenID'
       res.render('oops.html', {status: 401, msg:err.message})
     else
@@ -178,6 +267,7 @@ module.exports = exports = (argv) ->
     app.use(express.session({ secret: 'notsecret'}))
     app.use(passport.initialize())
     app.use(passport.session())
+    app.use(errorHandler)
     app.use(app.router)
     app.use(express.static(argv.c))
     app.use(openIDErr)
@@ -191,7 +281,7 @@ module.exports = exports = (argv) ->
   )
 
   # Show all of the options a server is using.
-  console.log argv if argv.debug
+  log argv
 
   # Swallow errors when in production.
   app.configure('production', ->
@@ -252,21 +342,23 @@ module.exports = exports = (argv) ->
     res.render('static.html', info)
   )
 
-  app.get('/plugins/factory.js', (req, res) ->
-    catalog = """
-              window.catalog = {
-                "ByteBeat": {"menu": "8-bit Music by Formula"},
-                "MathJax": {"menu": "TeX Formatted Equations"},
-                "Calculator": {"menu": "Running Sums for Expenses"}
-              };
+  app.get ////plugins/(factory/)?factory.js///, (req, res) ->
+    cb = (e, catalog) ->
+      if e then return res.e e
+      res.write('window.catalog = ' + JSON.stringify(catalog) + ';')
+      fs.createReadStream(argv.c + '/plugins/meta-factory.js').pipe(res)
 
-              """
-    fs.readFile("#{argv.r}/client/plugins/meta-factory.js", (err, data) =>
-      if err then throw err
-      res.header('Content-Type', 'application/javascript')
-      res.send(catalog + data)
-    )
-  )
+    glob argv.c + '/**/factory.json', (e, files) ->
+      if e then return cb(e)
+      files = files.map (file) ->
+        return fs.createReadStream(file).on('error', res.e).pipe(
+          JSONStream.parse([false]).on 'root', (el) ->
+            @.emit 'data', el
+        )
+
+      es.concat.apply(null, files)
+        .on('error', res.e)
+        .pipe(es.writeArray(cb))
 
   ###### Json Routes ######
   # Handle fetching local and remote json pages.
@@ -274,7 +366,8 @@ module.exports = exports = (argv) ->
   app.get(///^/([a-z0-9-]+)\.json$///, cors, (req, res) ->
     file = req.params[0]
     pagehandler.get(file, (e, page, status) ->
-      if e then throw e
+      if e then return res.e e
+      logWatchSocket.emit 'fetch', page unless status
       res.json(page, status)
     )
   )
@@ -283,7 +376,9 @@ module.exports = exports = (argv) ->
   # and sends it to the client.  TODO: consider caching remote pages locally.
   app.get(///^/remote/([a-zA-Z0-9:\.-]+)/([a-z0-9-]+)\.json$///, (req, res) ->
     remoteGet(req.params[0], req.params[1], (e, page, status) ->
-      if e then console.log "remoteGet error:", e if argv.debug
+      if e 
+        log "remoteGet error:", e
+        return res.e e
       res.send(page, status)
     )
   )
@@ -304,13 +399,13 @@ module.exports = exports = (argv) ->
     path.exists(argv.status, (exists) ->
       if exists
         fs.writeFile(favLoc, buf, (e) ->
-          if e then throw e
+          if e then return res.e e
           res.send('Favicon Saved')
         )
       else
         mkdirp(argv.status, 0777, ->
           fs.writeFile(favLoc, buf, (e) ->
-            if e then throw e
+            if e then return res.e e
             res.send('Favicon Saved')
           )
         )
@@ -325,10 +420,43 @@ module.exports = exports = (argv) ->
   ###### Meta Routes ######
   # Send an array of pages in the database via json
   app.get('/system/slugs.json', cors, (req, res) ->
-    fs.readdir(argv.db, (err, files) ->
+    fs.readdir(argv.db, (e, files) ->
+      if e then return res.e e
       res.send(files)
     )
   )
+
+  app.get('/system/plugins.json', cors, (req, res) ->
+    fs.readdir(path.join(argv.c, 'plugins'), (e, files) ->
+      if e then return res.e e
+      res.send(files)
+    )
+  )
+
+  app.get('/system/sitemap.json', cors, (req, res) ->
+    fs.readdir(argv.db, (e, files) ->
+      if e then return res.e e
+      # used to make sure all of the files are read 
+      # and processesed in the site map before responding
+      numFiles = files.length
+      doSitemap = (file, cb) ->
+        pagehandler.get file, (e, page, status) ->
+          if e 
+            log 'Problem building sitemap:', file, 'e: ', e
+            return cb() # Ignore errors in the pagehandler get.
+          cb null, {
+            slug     : file
+            title    : page.title
+            date     : page.journal and page.journal.length > 0 and page.journal.pop().date
+            synopsis : synopsis(page)
+          }
+
+      async.map files, doSitemap, (e, sitemap) ->
+        if e then return res.e e
+        res.json(sitemap.filter (item) -> if item? then true)
+    )
+  )
+
 
   ##### Put routes #####
 
@@ -336,10 +464,10 @@ module.exports = exports = (argv) ->
     action = JSON.parse(req.body.action)
     # Handle all of the possible actions to be taken on a page,
     actionCB = (e, page, status) ->
-      if e then throw e
+      #if e then return res.e e
       if status is 404
         res.send(page, status)
-      console.log page if argv.debug
+      log page
       # Using Coffee-Scripts implicit returns we assign page.story to the
       # result of a list comprehension by way of a switch expression.
       page.story = switch action.type
@@ -360,11 +488,11 @@ module.exports = exports = (argv) ->
         when 'edit'
           (if item.id is action.id then action.item else item) for item in page.story
 
-        when 'create'
+        when 'create', 'fork'
           page.story or []
 
         else
-          console.log "Unfamiliar action: #{action}"
+          log "Unfamiliar action:", action
           page.story
 
       # Add a blank journal if it does not exist.
@@ -375,14 +503,14 @@ module.exports = exports = (argv) ->
         page.journal.push({type: "fork", site: action.fork})
         delete action.fork
       page.journal.push(action)
-      console.log page
+      log page
       pagehandler.put(req.params[0], page, (e) ->
-        if e then throw e
+        if e then return res.e e
         res.send('ok')
-        console.log 'saved' if argv.debug
+        log 'saved'
       )
 
-    console.log(action) if argv.debug
+    log action
     # If the action is a fork, get the page from the remote server,
     # otherwise ask pagehandler for it.
     if action.fork
@@ -391,11 +519,19 @@ module.exports = exports = (argv) ->
       # Prevent attempt to write circular structure
       itemCopy = JSON.parse(JSON.stringify(action.item))
       pagehandler.get(req.params[0], (e, page, status) ->
+        if e then return actionCB(e)
         unless status is 404
           res.send('Page already exists.', 409)
         else
           actionCB(null, itemCopy)
       )
+    else if action.type == 'fork'
+      if action.item # push
+        itemCopy = JSON.parse(JSON.stringify(action.item))
+        delete action.item
+        actionCB(null, itemCopy)
+      else # pull
+        remoteGet(action.site, req.params[0], actionCB)
     else
       pagehandler.get(req.params[0], actionCB)
   )
@@ -433,9 +569,12 @@ module.exports = exports = (argv) ->
 
   #### Start the server ####
   # Wait to make sure owner is known before listening.
-  setOwner( null, ->
+  setOwner( null, (e) ->
+    # Throw if you can't find the initial owner
+    if e then throw e
     app.listen(argv.p, argv.o if argv.o)
-    console.log("Smallest Federated Wiki server listening on #{app.address().port} in mode: #{app.settings.env}")
+    loga "Smallest Federated Wiki server listening on", app.address().port, "in mode:", app.settings.env
   )
   # Return app when called, so that it can be watched for events and shutdown with .close() externally.
   app
+

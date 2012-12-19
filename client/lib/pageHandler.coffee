@@ -25,28 +25,27 @@ recursiveGet = ({pageInformation, whenGotten, whenNotGotten, localContext}) ->
       if localPage = pageFromLocalStorage(pageInformation.slug)
         return whenGotten( localPage, 'local' )
       else
+        return whenNotGotten()
     else
       if site == 'origin'
-        resource = slug
+        url = "/#{slug}.json"
       else
-        resource = "remote/#{site}/#{slug}"
+        url = "http://#{site}/#{slug}.json"
   else
-    resource = slug
-
-  pageUrl = "/#{resource}.json?random=#{util.randomBytes(4)}"
+    url = "/#{slug}.json"
 
   $.ajax
     type: 'GET'
     dataType: 'json'
-    url: pageUrl
+    url: url + "?random=#{util.randomBytes(4)}"
     success: (page) ->
       page = revision.create rev, page if rev
       return whenGotten(page,site)
     error: (xhr, type, msg) ->
-      if xhr.status != 404
+      if (xhr.status != 404) and (xhr.status != 0)
         wiki.log 'pageHandler.get error', xhr, xhr.status, type, msg
         report =
-          'title': msg
+          'title': "#{xhr.status} #{msg}"
           'story': [
             'type': 'paragraph'
             'id': '928739187243'
@@ -59,11 +58,6 @@ recursiveGet = ({pageInformation, whenGotten, whenNotGotten, localContext}) ->
         whenNotGotten()
 
 pageHandler.get = ({whenGotten,whenNotGotten,pageInformation}  ) ->
-
-  wiki.log 'pageHandler.get', pageInformation.site, pageInformation.slug, pageInformation.rev, 'context', pageHandler.context.join ' => '
-
-  if pageInformation.wasServerGenerated
-    return whenGotten( null )
 
   unless pageInformation.site
     if localPage = pageFromLocalStorage(pageInformation.slug)
@@ -102,8 +96,11 @@ pushToServer = (pageElement, pagePutInfo, action) ->
       'action': JSON.stringify(action)
     success: () ->
       wiki.addToJournal pageElement.find('.journal'), action
+      if action.type == 'fork' # push
+        localStorage.removeItem pageElement.attr('id')
+        state.setUrl
     error: (xhr, type, msg) ->
-      wiki.log "ajax error callback", type, msg
+      wiki.log "pageHandler.put ajax error callback", type, msg
 
 pageHandler.put = (pageElement, action) ->
 
@@ -121,7 +118,7 @@ pageHandler.put = (pageElement, action) ->
     local: pageElement.hasClass('local')
   }
   forkFrom = pagePutInfo.site
-  wiki.log 'pageHandler.put', pageElement, action, 'pagePutInfo', pagePutInfo, 'forkFrom', forkFrom
+  wiki.log 'pageHandler.put', action, pagePutInfo
 
   # detect when fork to local storage
   if wiki.useLocalStorage()
