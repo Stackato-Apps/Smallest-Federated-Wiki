@@ -101,13 +101,15 @@ module.exports = exports = (argv) ->
     )
   )
   logWatchSocket.on('connection', (ws) ->
-    logWatchSocket.on('fetch', (page) ->
+    logWatchSocket.on('fetch', fetchListener = (page) ->
       reference =
         title: page.title
+        listeners: logWatchSocket.listeners('fetch').length
       ws.send JSON.stringify(reference), (e) ->
         if e
-          log 'unable to send ws message: ', e
-          return
+          log 'unable to send ws message: ', e, reference
+          logWatchSocket.removeListener 'fetch', fetchListener
+          ws.close()
     )
     ws.on('message', (message) ->
       log 'logWatch message from client:', message
@@ -441,6 +443,7 @@ module.exports = exports = (argv) ->
       numFiles = files.length
       doSitemap = (file, cb) ->
         pagehandler.get file, (e, page, status) ->
+          return cb() if file.match /^\./
           if e 
             log 'Problem building sitemap:', file, 'e: ', e
             return cb() # Ignore errors in the pagehandler get.
