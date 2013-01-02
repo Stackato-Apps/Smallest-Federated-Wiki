@@ -4,19 +4,35 @@ report = require './report.js'
 print = (arg...) -> console.log arg...
 
 
-# */10 * * * * (cd wiki/client/plugins/report; Port=:1111 /usr/local/bin/node post.js)
 
-port = process.env.Port or ''
-farm = process.env.Farm or '../../../data/farm'
+# 0 * * * * (cd wiki/client/plugins/report; Port=:1111 /usr/local/bin/node post.js)
+
+Site = process.env.Site or null
+Port = process.env.Port or ''
+Farm = process.env.Farm or '../../../data/farm' unless Site
+Sufix = process.env.Sufix or 'report'
+
+
 
 # Fetch data from wiki farm files
 
-findPaths = (sufix, done) ->
-  child.exec "ls #{farm}/*/pages/*-#{sufix}", (err, stdout, stderr) ->
-    done stdout.split /\n/
+findPaths = (done) ->
+  if Farm
+    child.exec "ls #{Farm}/*/pages/*-#{Sufix}", (err, stdout, stderr) ->
+      for path in stdout.split /\n/
+        continue if path is ''
+        [slug,x,site] = path.split('/').reverse()
+        done path, site, slug
+  else
+    child.exec "ls ../../../data/pages/*-#{Sufix}", (err, stdout, stderr) ->
+      for path in stdout.split /\n/
+        continue if path is ''
+        [slug] = path.split('/').reverse()
+        done path, Site, slug
 
 fetchPage = (path, done) ->
   text = fs.readFile path, 'utf8', (err, text) ->
+    return console.log ['fetchPage', path, err] if err
     done JSON.parse text
 
 findSchedule = (page) ->
@@ -25,9 +41,7 @@ findSchedule = (page) ->
   null
 
 findPubs = (done) ->
-  findPaths 'report', (paths) ->
-    path = paths[0]
-    [x,x,x,x,x,site,x,slug] = path.split '/'
+  findPaths (path, site, slug) ->
     fetchPage path, (page) ->
       if schedule = findSchedule page
         for issue in schedule
@@ -41,10 +55,16 @@ findPubs = (done) ->
 fold = (text) ->
   text.match(/(\S*\s*){1,9}/g).join "\n"
 
-compose = (page) ->
+compose = (page, since) ->
+  active = {}
+  for action in page.journal
+    if action.date and action.date > since
+      active[action.id] = 'NEW' if action.type == 'add'
+      active[action.id] = 'UPDATE' if action.type == 'edit' and not active[action.id]
   result = []
   for item in page.story
-    if item.type is 'paragraph'
+    if item.type is 'paragraph' and active[item.id]
+      result.push active[item.id]
       result.push fold item.text 
   result.join "\n"
 
@@ -66,8 +86,9 @@ enclose = ({site, slug, page, issue, summary}) ->
     To: issue.recipients.join ", "
     'Reply-to': issue.recipients.join ", "
     Subject: "#{page.title} (#{issue.interval})"
+  "#{page.title}\nPublished #{issue.interval} from #{site}#{Port}"
   summary
-  "See details at http://#{site}#{port}/#{slug}.html"].join "\n\n"
+  "See details at http://#{site}#{Port}/#{slug}.html"].join "\n\n"
 
 send = (pub) ->
   output = []
@@ -78,7 +99,7 @@ send = (pub) ->
   send.stderr.on 'data', (data) -> output.push data
   send.on 'exit', (code) ->
     print "sent #{pub.page.title} (#{pub.issue.interval}), code: #{code}"
-    print output
+    print output.join ''
 
 
 
@@ -87,9 +108,10 @@ send = (pub) ->
 findPubs (pub) ->
   pub.now = new Date(2012,12-1,21,0,0,3)
   pub.now = new Date()
-  pub.period = 10
+  pub.period = 60
   if ready pub
-    pub.summary = compose pub.page
-    pub.message = enclose pub
-    send pub
+    pub.summary = compose pub.page, report.advance(pub.now, pub.issue, -1)
+    unless pub.summary is ''
+      pub.message = enclose pub
+      send pub
     
