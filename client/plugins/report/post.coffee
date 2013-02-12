@@ -52,8 +52,15 @@ findPubs = (done) ->
 
 # Compose summary from story and journal
 
+links = (text) ->
+  text.replace /\[(http.*?) +(.*?)\]/gi, "[$2]"
+
+flow = (text) ->
+  text.replace(/\s+/g, ' ') + "\n"
+
 fold = (text) ->
-  text.match(/(\S*\s*){1,9}/g).join "\n"
+  # http://james.padolsey.com/javascript/wordwrap-for-javascript/
+  text.match(/.{1,50}(\s|$)|\S+?(\s|$)/g).join "\n"
 
 compose = (page, since) ->
   active = {}
@@ -65,7 +72,7 @@ compose = (page, since) ->
   for item in page.story
     if item.type is 'paragraph' and active[item.id]
       result.push active[item.id]
-      result.push fold item.text 
+      result.push fold flow links item.text
   result.join "\n"
 
 ready = ({issue, now, period}) ->
@@ -86,11 +93,11 @@ enclose = ({site, slug, page, issue, summary}) ->
     To: issue.recipients.join ", "
     'Reply-to': issue.recipients.join ", "
     Subject: "#{page.title} (#{issue.interval})"
-  "#{page.title}\nPublished #{issue.interval} from #{site}#{Port}"
+  "#{page.title}\nPublished #{issue.interval} from Federated Wiki"
   summary
-  "See details at http://#{site}#{Port}/#{slug}.html"].join "\n\n"
+  "See details at\nhttp://#{site}#{Port}/#{slug}.html"].join "\n\n"
 
-send = (pub) ->
+sendmail = (pub) ->
   output = []
   send = child.spawn '/usr/sbin/sendmail', ['-fward@wiki.org', '-t']
   send.stdin.write pub.message
@@ -113,5 +120,4 @@ findPubs (pub) ->
     pub.summary = compose pub.page, report.advance(pub.now, pub.issue, -1)
     unless pub.summary is ''
       pub.message = enclose pub
-      send pub
-    
+      sendmail pub
