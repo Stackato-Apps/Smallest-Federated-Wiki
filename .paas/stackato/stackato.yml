@@ -1,17 +1,16 @@
 name: fedwiki
+mem: 64M
 framework:
   type: node
-processes:
-  web: cd server/express; NODE_ENV=production ./bin/server.js -p $PORT
-mem: 128M
-min_version:
-  client: 1.4.3
+  runtime: node010
 services:
   ${name}-fs: filesystem
-hooks:
-# Note that this ends up being the same persistent area per user, not per-app.
-# In Stackato 1.4 there should be a simple env var that we can make as a
-# subdir. (Or something).
-  pre-running:
-    - ln -s $STACKATO_FILESYSTEM data
-ignores: []
+
+env:
+  APP_URI: "`echo $VCAP_APPLICATION|json uris[0]`"
+
+processes:
+#  web: cd server/express; NODE_ENV=production ./bin/server.js -p $PORT
+  web: NODE_ENV=production node_modules/wiki/bin/server.js --port $PORT --data $STACKATO_FILESYSTEM --url $APP_URI 
+
+
