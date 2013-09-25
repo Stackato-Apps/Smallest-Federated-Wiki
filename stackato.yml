@@ -1,0 +1,17 @@
+name: fedwiki 
+mem: 128M
+framework:
+  type: node
+  runtime: node010
+
+services:
+  ${name}-fs: filesystem
+
+env:
+  APP_URI: "`echo $VCAP_APPLICATION|json uris[0]`"
+
+processes:
+  web: node_modules/wiki/bin/server.js --port $PORT --data $STACKATO_FILESYSTEM --url $APP_URI 
+
+
+
