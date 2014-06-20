@@ -1,4 +1,4 @@
-name: fedwiki
+name: smallest-federated-wiki
 framework:
   type: node
 processes:
