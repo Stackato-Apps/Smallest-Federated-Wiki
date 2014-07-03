@@ -9,9 +9,9 @@
         {
            "branch" : "stackato",
            "desc" : "Smallest Federated Wiki",
-           "framework" : "node",
+           "framework" : "ruby",
            "home" : "https://github.com/Stackato-Apps/Smallest-Federated-Wiki#readme",
-           "id" : "fedwiki",
+           "id" : "smallest-federated-wiki",
            "license" : "Unknown",
            "mem" : "128",
            "name" : "Smallest Federated Wiki",

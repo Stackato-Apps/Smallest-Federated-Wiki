@@ -1,8 +1,4 @@
 name: smallest-federated-wiki
-framework:
-  type: node
-processes:
-  web: cd server/express; NODE_ENV=production ./bin/server.js -p $PORT
 mem: 128M
 min_version:
   client: 1.4.3
